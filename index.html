@@ -484,92 +484,17 @@ textarea {
     OFFLINE_CAP: 8 * 3600,  // s
     STAR_BONUS: 0.5,        // +50% value per Golden Pixel found
 
-    // Indestructible relics, stamped into the world at SCALE px per character.
-    RELICS: [
-      { name: 'Bone', scale: 7, art: [
-        '.XX.......XX.',
-        'XXXX.....XXXX',
-        'XXXXXXXXXXXXX',
-        '.XXXXXXXXXXX.',
-        'XXXXXXXXXXXXX',
-        'XXXX.....XXXX',
-        '.XX.......XX.',
-      ] },
-      { name: 'Paw', scale: 8, art: [
-        '..XX....XX..',
-        '.XXXX..XXXX.',
-        '.XXXX..XXXX.',
-        '..XX....XX..',
-        '............',
-        'XX..XXXX..XX',
-        'XX.XXXXXX.XX',
-        '..XXXXXXXX..',
-        '.XXXXXXXXXX.',
-        '.XXXXXXXXXX.',
-        '..XXXXXXXX..',
-      ] },
-      { name: 'Skull', scale: 8, art: [
-        '...XXXXXX...',
-        '.XXXXXXXXXX.',
-        'XXXXXXXXXXXX',
-        'XX...XX...XX',
-        'XX...XX...XX',
-        'XXXXXXXXXXXX',
-        '.XXXXX.XXXX.',
-        '..XXXXXXXX..',
-        '..X.X.X.X...',
-      ] },
-      { name: 'Key', scale: 7, art: [
-        '.XXX..........',
-        'X...X.........',
-        'X...XXXXXXXXXX',
-        'X...X....X.X.X',
-        '.XXX.....X.X..',
-      ] },
-      { name: 'Anchor', scale: 8, art: [
-        '....XXX....',
-        '....X.X....',
-        '....XXX....',
-        '..XXXXXXX..',
-        '.....X.....',
-        '.....X.....',
-        'X....X....X',
-        'XX...X...XX',
-        '.XX..X..XX.',
-        '..XXXXXXX..',
-      ] },
-      { name: 'Gear', scale: 7, art: [
-        '....XX....',
-        '.X.XXXX.X.',
-        '..XXXXXX..',
-        'XXXX..XXXX',
-        'XXX....XXX',
-        'XXX....XXX',
-        'XXXX..XXXX',
-        '..XXXXXX..',
-        '.X.XXXX.X.',
-        '....XX....',
-      ] },
-      { name: 'Arch', scale: 9, art: [
-        '.XXXXXXXXX.',
-        'XXXXXXXXXXX',
-        'XXX.....XXX',
-        'XX.......XX',
-        'XX.......XX',
-        'XX.......XX',
-        'XX.......XX',
-      ] },
-      { name: 'Spiral', scale: 6, art: [
-        'XXXXXXXXXX',
-        'X........X',
-        'X.XXXXXX.X',
-        'X.X....X.X',
-        'X.X.XX.X.X',
-        'X.X..X.X.X',
-        'X.XXXX.X.X',
-        'X......X.X',
-        'XXXXXXXX.X',
-      ] },
+    // Relic materials: each is a shadow -> mid -> highlight ramp. relics.js shades every
+    // relic pixel and stores (material << 5 | brightness 0..31) in the cell's dmg byte.
+    RELIC_MATS: [
+      { key: 'bone',      ramp: [[58, 46, 36], [190, 170, 134], [246, 236, 212]] },
+      { key: 'stain',     ramp: [[42, 30, 20], [128, 96, 62], [198, 166, 120]] },
+      { key: 'iron',      ramp: [[20, 22, 28], [76, 80, 90], [178, 184, 194]] },
+      { key: 'rust',      ramp: [[40, 20, 12], [138, 70, 34], [214, 134, 74]] },
+      { key: 'bronze',    ramp: [[44, 28, 14], [150, 104, 52], [238, 198, 122]] },
+      { key: 'verdigris', ramp: [[18, 48, 44], [62, 140, 120], [152, 216, 192]] },
+      { key: 'terracotta', ramp: [[60, 26, 16], [176, 88, 52], [238, 158, 110]] },
+      { key: 'fossil',    ramp: [[44, 40, 36], [140, 128, 112], [216, 206, 186]] },
     ],
     RELIC_COUNT: 34,
   };
@@ -700,27 +625,7 @@ textarea {
   function finalize(w) {
     const rng = mulberry32(w.seed ^ 0x9e3779b9);
     const cells = w.cells;
-    w.relics = [];
-    for (let i = 0; i < D.RELIC_COUNT; i++) {
-      const def = D.RELICS[Math.floor(rng() * D.RELICS.length)];
-      const rw = Math.max(...def.art.map(r => r.length)) * def.scale, rh = def.art.length * def.scale;
-      for (let tries = 0; tries < 30; tries++) {
-        const x0 = 30 + Math.floor(rng() * (W - 60 - rw));
-        const y0 = D.SURFACE + 160 + Math.floor(rng() * (H - D.SURFACE - 220 - rh));
-        if (overlaps(w.relics, x0, y0, x0 + rw, y0 + rh, 40)) continue;
-        def.art.forEach((line, ry) => {
-          for (let rx = 0; rx < line.length; rx++) {
-            if (line[rx] !== 'X') continue;
-            for (let py = 0; py < def.scale; py++) {
-              const row = (y0 + ry * def.scale + py) * W + x0 + rx * def.scale;
-              cells.fill(T.RELIC, row, row + def.scale);
-            }
-          }
-        });
-        w.relics.push({ name: def.name, x0, y0, x1: x0 + rw, y1: y0 + rh });
-        break;
-      }
-    }
+    w.relics = PQ.Relics.place(w, rng);
 
     // The Golden Pixel sits deep, fully buried, away from relics.
     for (let tries = 0; tries < 5000; tries++) {
@@ -752,9 +657,11 @@ textarea {
     return w;
   }
 
-  // Re-applies a save's mined bitset to a freshly generated world.
-  function applyMined(w, bits) {
-    const cells = w.cells;
+  // Re-applies a save's mined bitset to a freshly generated world. With keepGold,
+  // the Golden Pixel survives even if the save mined that spot (a save made before
+  // a world-generation change can point at rock that is now the gold).
+  function applyMined(w, bits, keepGold) {
+    const cells = w.cells, goldI = w.gold.y * W + w.gold.x;
     let count = 0;
     const len = Math.min(bits.length, w.mined.length);
     for (let b = 0; b < len; b++) {
@@ -763,7 +670,7 @@ textarea {
       for (let k = 0; k < 8; k++) {
         if ((v >> k) & 1) {
           const i = (b << 3) + k;
-          if (i < N && cells[i] !== T.RELIC) { cells[i] = T.AIR; count++; }
+          if (i < N && cells[i] !== T.RELIC && !(keepGold && i === goldI)) { cells[i] = T.AIR; count++; }
         }
       }
       w.mined[b] = v;
@@ -772,6 +679,296 @@ textarea {
   }
 
   PQ.World = { create, prepare, genRows, finalize, generate, applyMined, mulberry32, hash2, vnoise };
+})();
+
+</script>
+<script>
+// Pixel Quarry: relics. Each one is a 2D distance field at 1 px resolution, lit as
+// a bevelled height field and textured by material. Relic cells are unbreakable;
+// their dmg byte holds the shaded tone (material << 5 | brightness 0..31).
+(function () {
+  const root = typeof window !== 'undefined' ? window : globalThis;
+  const PQ = root.PQ;
+  const D = PQ.DATA, T = D.T, W = D.W, H = D.H;
+  const hyp = Math.hypot;
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const M = { BONE: 0, STAIN: 1, IRON: 2, RUST: 3, BRONZE: 4, VERDI: 5, CLAY: 6, FOSSIL: 7 };
+
+  // ---- distance-field primitives (negative inside) ----
+  const circle = (x, y, cx, cy, r) => hyp(x - cx, y - cy) - r;
+  const ring = (x, y, cx, cy, r, t) => Math.abs(hyp(x - cx, y - cy) - r) - t;
+  function capsule(x, y, ax, ay, bx, by, ra, rb) {
+    const pax = x - ax, pay = y - ay, bax = bx - ax, bay = by - ay;
+    const h = clamp((pax * bax + pay * bay) / (bax * bax + bay * bay), 0, 1);
+    return hyp(pax - bax * h, pay - bay * h) - (ra + (rb - ra) * h);
+  }
+  function ellipse(x, y, cx, cy, rx, ry) {
+    return (hyp((x - cx) / rx, (y - cy) / ry) - 1) * Math.min(rx, ry);
+  }
+  function box(x, y, cx, cy, hx, hy, r) {
+    const qx = Math.abs(x - cx) - hx + r, qy = Math.abs(y - cy) - hy + r;
+    return hyp(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+  }
+  function smin(a, b, k) {
+    const h = clamp(0.5 + 0.5 * (b - a) / k, 0, 1);
+    return b + (a - b) * h - k * h * (1 - h);
+  }
+  const noise = (x, y, s) => PQ.World.vnoise(x, y, s);
+
+  // ---- the relics; coordinates are px at scale 1, origin at the centre ----
+  const KINDS = [
+    {
+      name: 'Femur', weight: 3, hw: 78, hh: 24, bevel: 7, tilt: Math.PI, base: M.BONE,
+      sdf(x, y) {
+        const yb = y - 4 * (1 - (x / 62) * (x / 62));            // a slight bow in the shaft
+        let d = capsule(x, yb, -48, 0, 48, 0, 6.5, 7);
+        d = smin(d, capsule(x, y, -50, 0, -62, -7, 7, 8), 5);      // neck
+        d = smin(d, circle(x, y, -65, -9, 11.5), 4);              // head
+        d = smin(d, circle(x, y, -55, 8, 8), 5);                  // trochanter
+        d = smin(d, box(x, y, 54, 1, 6, 12, 4), 6);
+        d = smin(d, circle(x, y, 61, -6, 10.5), 5);               // condyles
+        d = smin(d, circle(x, y, 62, 8, 10.5), 5);
+        return Math.max(d, -ellipse(x, y, 67, 1, 3.5, 2.5));      // notch between condyles
+      },
+    },
+    {
+      name: 'Spine', weight: 2, hw: 84, hh: 74, bevel: 5, tilt: 0.5, base: M.BONE,
+      sdf(x, y) {
+        let d = 1e9;
+        for (let i = 0; i < 7; i++) {
+          const vx = -66 + i * 21, vy = -40 + 5 * Math.sin(i * 0.7);
+          if (x < vx - 16 || x > vx + 38) continue;               // too far to matter
+          const L = 1.15 - Math.abs(i - 3) * 0.1;                  // middle ribs longest
+          if (x < vx + 16) {
+            d = Math.min(d, box(x, y, vx, vy, 9, 7, 3.5));        // vertebra
+            d = smin(d, capsule(x, y, vx, vy - 5, vx + 7, vy - 21, 3.6, 1.8), 3);   // spinous process
+          }
+          if (x < vx - 10 || y < vy - 8) continue;
+          // A rib arcs out from the spine and sweeps back as it drops.
+          let r = 1e9, px = vx + 3, py = vy + 4;
+          for (let k = 1; k <= 5; k++) {
+            const a = 0.15 + k * 0.32, nx = vx + 3 + Math.sin(a) * 26 * L - k * 2, ny = vy + 4 + (1 - Math.cos(a)) * 40 * L + k * 8 * L;
+            r = smin(r, capsule(x, y, px, py, nx, ny, 3.3 - k * 0.3, 3.3 - (k + 1) * 0.3), 2.5);
+            px = nx; py = ny;
+          }
+          d = Math.min(d, r);
+        }
+        return d;
+      },
+    },
+    {
+      name: 'Skull', weight: 2, hw: 74, hh: 40, bevel: 9, tilt: 0.6, base: M.BONE,
+      sdf(x, y) {
+        let d = ellipse(x, y, 20, -8, 40, 27);                    // braincase
+        d = smin(d, circle(x, y, 52, -2, 15), 8);                 // back of the skull
+        d = smin(d, capsule(x, y, -6, 0, -62, 10, 19, 8), 10);    // muzzle
+        d = smin(d, capsule(x, y, 0, -34, 50, -22, 2.5, 2), 4);   // sagittal crest
+        d = smin(d, capsule(x, y, -12, 10, 30, 12, 5, 4), 4);     // cheekbone
+        d = Math.max(d, -circle(x, y, -6, -8, 10));               // eye socket
+        d = Math.max(d, -ellipse(x, y, -64, 6, 5, 4));            // nostril
+        d = Math.min(d, capsule(x, y, -46, 14, -49, 31, 4, 1.2)); // canine
+        for (let i = 0; i < 5; i++) {
+          const tx = -35 + i * 9;
+          d = Math.min(d, capsule(x, y, tx, 15, tx + 1, i === 3 ? 26 : 22, 3.4, 1.2));
+        }
+        let j = capsule(x, y, -58, 31, 26, 31, 5.5, 8);           // lower jaw
+        j = smin(j, capsule(x, y, 26, 31, 40, 14, 8, 7), 6);
+        j = smin(j, circle(x, y, 43, 27, 6), 3);
+        for (let i = 0; i < 4; i++) j = Math.min(j, capsule(x, y, -40 + i * 11, 26, -40 + i * 11, 21, 3, 1.2));
+        return Math.min(d, j);
+      },
+    },
+    {
+      name: 'Ammonite', weight: 2, hw: 58, hh: 54, bevel: 6, tilt: Math.PI, base: M.FOSSIL,
+      sdf(x, y) { return ellipse(x, y, 0, 0, 56, 52) + 1.5 * (noise(x / 5, y / 5, 11) - 0.5); },
+      height(x, y) {
+        const r = hyp(x, y) + 0.01, th = Math.atan2(y, x);
+        let f = (Math.log(r / 2.5) / 0.16 - th) / (2 * Math.PI);
+        f -= Math.floor(f);
+        const tube = Math.sin(Math.PI * f);                      // each whorl is a rounded tube
+        const ribs = Math.max(0, Math.sin(th * 26 + Math.log(r) * 4));
+        return 0.3 + 0.7 * tube + 0.18 * ribs * tube;
+      },
+    },
+    {
+      name: 'Anchor', weight: 1, hw: 60, hh: 78, bevel: 4, tilt: 0.9, base: M.IRON,
+      sdf(x, y) {
+        let d = box(x, y, 0, -2, 4.5, 46, 2);                     // shank
+        d = Math.min(d, ring(x, y, 0, -60, 11, 3.5));             // ring
+        d = Math.min(d, box(x, y, 0, -38, 30, 4, 2), circle(x, y, -31, -38, 5), circle(x, y, 31, -38, 5));
+        d = smin(d, Math.max(ring(x, y, 0, 0, 44, 5), 12 - y), 4); // arms
+        d = Math.min(d, capsule(x, y, -40, 22, -50, 3, 9, 2), capsule(x, y, 40, 22, 50, 3, 9, 2));
+        return smin(d, circle(x, y, 0, 44, 7), 4);                // crown
+      },
+    },
+    {
+      name: 'Gear', weight: 1, hw: 50, hh: 50, bevel: 3, tilt: Math.PI, base: M.BRONZE,
+      sdf(x, y) {
+        const r = hyp(x, y), th = Math.atan2(y, x);
+        const tooth = clamp((Math.cos(th * 12) + 0.15) * 2.2, 0, 1) * 7;
+        let d = r - (39 + tooth);
+        d = Math.max(d, 9 - r);                                   // axle hole
+        const win = Math.max(Math.abs(r - 24) - 7.5, (Math.cos(th * 5) - 0.35) * r * 0.45);
+        return Math.max(d, -win);                                  // windows between spokes
+      },
+      height(x, y) {
+        const r = hyp(x, y);
+        return r > 31 || r < 14 ? 1 : 0.72;                       // raised rim and hub
+      },
+    },
+    {
+      name: 'Amphora', weight: 1, hw: 40, hh: 70, bevel: 9, tilt: 1.2, base: M.CLAY,
+      sdf(x, y) {
+        let d = ellipse(x, y, 0, 8, 29, 42);
+        d = smin(d, box(x, y, 0, -40, 9, 14, 3), 8);
+        d = Math.min(d, box(x, y, 0, -55, 13, 3.5, 2));
+        for (const s of [-1, 1]) {
+          let hnd = capsule(x, y, s * 9, -48, s * 22, -46, 3, 3);
+          hnd = smin(hnd, capsule(x, y, s * 22, -46, s * 26, -26, 3, 3.2), 3);
+          d = smin(d, hnd, 3);
+        }
+        d = smin(d, capsule(x, y, 0, 46, 0, 64, 9, 4), 6);         // foot
+        return Math.max(d, -(circle(x, y, 33, -8, 15) + 4 * (noise(x / 3, y / 3, 7) - 0.5)));   // broken side
+      },
+      mat(x, y) { return (y > -20 && y < -15) || (y > 17 && y < 22) || (y > 27 && y < 29) ? M.STAIN : M.CLAY; },
+    },
+    {
+      name: 'Sword', weight: 1, hw: 94, hh: 20, bevel: 4, tilt: Math.PI, base: M.IRON,
+      sdf(x, y) {
+        let d = capsule(x, y, -58, 0, 64, 0, 7, 1.2);              // blade
+        d = Math.min(d, box(x, y, -62, 0, 3.5, 17, 2));            // crossguard
+        d = Math.min(d, capsule(x, y, -66, 0, -82, 0, 3.2, 3.2));  // grip
+        return Math.min(d, circle(x, y, -87, 0, 5.5));             // pommel
+      },
+      height(x, y) { return x > -55 ? 1 - 0.4 * Math.exp(-y * y / 1.5) : 1; },   // fuller
+      mat(x) { return x < -59 ? M.BRONZE : M.IRON; },
+    },
+    {
+      name: 'Pawprint', weight: 1, hw: 50, hh: 46, bevel: 5, tilt: 0.7, base: M.FOSSIL,
+      sdf(x, y) { return box(x, y, 0, 0, 46, 42, 12) + 5 * (noise(x / 7, y / 7, 3) - 0.5); },
+      height(x, y) {
+        const dip = (cx, cy, rx, ry) => clamp(-ellipse(x, y, cx, cy, rx, ry) / 4, 0, 1);
+        const sink = Math.max(dip(0, 14, 17, 13), dip(-22, -10, 7, 9), dip(-8, -23, 7, 9),
+          dip(8, -23, 7, 9), dip(22, -10, 7, 9));
+        return 1 - 0.65 * sink;
+      },
+    },
+  ];
+  const TOTAL = KINDS.reduce((a, k) => a + k.weight, 0);
+
+  // Light from the upper left, toward the viewer.
+  const LX = -0.55, LY = -0.65, LZ = 0.53;
+  const HX = LX, HY = LY, HZ = LZ + 1, HL = hyp(HX, HY, HZ);
+
+  // Rasterise one relic into the world, centred on (cx, cy), rotated by `a`, scaled by `s`.
+  // Returns its bounding box.
+  function stamp(w, kind, cx, cy, a, s, seed) {
+    const R = Math.ceil(hyp(kind.hw, kind.hh) * s) + 2, n = 2 * R + 1;
+    const x0 = cx - R, y0 = cy - R;
+    const dist = new Float32Array(n * n).fill(1e9), ht = new Float32Array(n * n), prof = new Float32Array(n * n);
+    const lxs = new Float32Array(n * n), lys = new Float32Array(n * n);
+    const ca = Math.cos(a), sa = Math.sin(a), bevel = kind.bevel * s;
+    // Coarse pass: a 4 px block whose centre is well outside the shape is skipped.
+    const B = 4, nb = Math.ceil(n / B), far = new Uint8Array(nb * nb);
+    for (let bj = 0; bj < nb; bj++) {
+      for (let bi = 0; bi < nb; bi++) {
+        const dx = bi * B + B / 2 - R, dy = bj * B + B / 2 - R;
+        far[bj * nb + bi] = kind.sdf((dx * ca + dy * sa) / s, (-dx * sa + dy * ca) / s) * s > 7 ? 1 : 0;
+      }
+    }
+    for (let j = 0; j < n; j++) {
+      const y = y0 + j;
+      if (y < 0 || y >= H) continue;
+      for (let i = 0; i < n; i++) {
+        const x = x0 + i;
+        if (x < 0 || x >= W || far[((j / B) | 0) * nb + ((i / B) | 0)]) continue;
+        const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+        const lx = (dx * ca + dy * sa) / s, ly = (-dx * sa + dy * ca) / s;
+        const k = j * n + i, d = kind.sdf(lx, ly) * s;
+        dist[k] = d;
+        if (d >= 0) continue;
+        const u = Math.min(1, -d / bevel), p = Math.sqrt(1 - (1 - u) * (1 - u));
+        prof[k] = p;
+        ht[k] = bevel * p * (kind.height ? kind.height(lx, ly) : 1);
+        lxs[k] = lx; lys[k] = ly;
+      }
+    }
+    let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
+    for (let j = 1; j < n - 1; j++) {
+      for (let i = 1; i < n - 1; i++) {
+        const k = j * n + i, d = dist[k];
+        if (d >= 0) continue;
+        const x = x0 + i, y = y0 + j, lx = lxs[k], ly = lys[k], p = prof[k];
+        if (-d < 5 * s && noise(lx / 10, ly / 10, seed + 41) + noise(lx / 3, ly / 3, seed + 42) * 0.35 > 0.98 + (-d / (5 * s)) * 0.12) continue;   // still buried
+        // Surface normal from the height field; light it.
+        let nx = ht[k - 1] - ht[k + 1], ny = ht[k - n] - ht[k + n], nz = 2;
+        const nl = hyp(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
+        const diff = Math.max(0, nx * LX + ny * LY + nz * LZ);
+        const nh = Math.max(0, (nx * HX + ny * HY + nz * HZ) / HL);
+
+        let m = kind.mat ? kind.mat(lx, ly) : kind.base, mul = 1;
+        const grain = PQ.World.hash2(x, y, seed + 40);
+        if (m === M.BONE) {
+          if (noise(lx / 18, ly / 18, seed + 31) * 0.7 + (1 - p) * 0.55 > 0.8) m = M.STAIN;
+          mul = 1 + (noise(lx / 2.2, ly / 2.2, seed + 32) - 0.5) * 0.22;
+          if (grain < 0.035) mul *= 0.72;                         // pores
+        } else if (m === M.IRON) {
+          if (noise(lx / 11, ly / 11, seed + 34) + (grain - 0.5) * 0.25 > 0.58) m = M.RUST;
+          mul = 1 + (noise(lx / 1.7, ly / 1.7, seed + 35) - 0.5) * 0.3;
+          if (grain < 0.07) mul *= 0.65;                          // pitting
+        } else if (m === M.BRONZE) {
+          if (noise(lx / 8, ly / 8, seed + 36) * 0.6 + (1 - p) * 0.7 > 0.72) m = M.VERDI;
+          mul = 1 + (noise(lx / 2, ly / 2, seed + 37) - 0.5) * 0.14;
+        } else if (m === M.CLAY) {
+          mul = 1 + (noise(lx / 3, ly / 3, seed + 38) - 0.5) * 0.16;
+          if (grain < 0.02) mul *= 0.8;
+        } else if (m === M.FOSSIL) {
+          mul = 1 + (noise(lx / 2.5, ly / 2.5, seed + 39) - 0.5) * 0.26 + (grain - 0.5) * 0.08;
+        }
+        if (m !== M.IRON && m !== M.RUST && Math.abs(noise(lx / 16, ly / 16, seed + 33) - 0.5) < 0.012) mul *= 0.45;   // hairline cracks
+        if (-d < 1.1) mul *= 0.55;                                // dark rim where it meets the rock
+
+        const shiny = m === M.IRON ? 0.35 : m === M.BRONZE ? 0.3 : m === M.BONE ? 0.1 : 0.04;
+        const b = (0.2 + 0.8 * diff + shiny * Math.pow(nh, 20)) * mul;
+        const tone = (m << 5) | clamp(Math.round(b * 31), 0, 31);
+        const idx = y * W + x;
+        w.cells[idx] = T.RELIC;
+        w.dmg[idx] = tone;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+    return { x0: minX, y0: minY, x1: maxX + 1, y1: maxY + 1 };
+  }
+
+  function overlaps(list, x0, y0, x1, y1, pad) {
+    for (const r of list) {
+      if (x0 < r.x1 + pad && x1 > r.x0 - pad && y0 < r.y1 + pad && y1 > r.y0 - pad) return true;
+    }
+    return false;
+  }
+
+  // Scatter D.RELIC_COUNT relics below the surface. Uses the world's rng stream.
+  function place(w, rng) {
+    const list = [];
+    for (let i = 0; i < D.RELIC_COUNT; i++) {
+      let pick = rng() * TOTAL, kind = KINDS[0];
+      for (const k of KINDS) { pick -= k.weight; if (pick < 0) { kind = k; break; } }
+      const s = 0.85 + rng() * 0.35, a = (rng() - 0.5) * 2 * kind.tilt;
+      const R = Math.ceil(hyp(kind.hw, kind.hh) * s) + 2;
+      for (let tries = 0; tries < 30; tries++) {
+        const cx = R + 30 + Math.floor(rng() * (W - 2 * R - 60));
+        const cy = D.SURFACE + 160 + R + Math.floor(rng() * (H - D.SURFACE - 220 - 2 * R));
+        if (overlaps(list, cx - R, cy - R, cx + R, cy + R, 30)) continue;
+        const bb = stamp(w, kind, cx, cy, a, s, w.seed + i * 101);
+        list.push({ name: kind.name, x0: cx - R, y0: cy - R, x1: cx + R, y1: cy + R, shape: bb });
+        break;
+      }
+    }
+    return list;
+  }
+
+  PQ.Relics = { KINDS, M, stamp, place };
 })();
 
 </script>
@@ -1217,6 +1414,20 @@ textarea {
     return pal;
   }
 
+  // 8 relic materials x 32 brightness steps, from each material's shadow-mid-light ramp.
+  function buildRelicPalette() {
+    const pal = new Uint32Array(256);
+    D.RELIC_MATS.forEach((m, mi) => {
+      const [s, md, l] = m.ramp;
+      for (let lv = 0; lv < 32; lv++) {
+        const t = lv / 31;
+        const c = t < 0.55 ? s.map((v, k) => lerp(v, md[k], t / 0.55)) : md.map((v, k) => lerp(v, l[k], (t - 0.55) / 0.45));
+        pal[(mi << 5) | lv] = pack(c[0], c[1], c[2]);
+      }
+    });
+    return pal;
+  }
+
   function buildStageLUT() {
     const lut = new Uint8Array(16 * 256);
     MAT.forEach(m => {
@@ -1242,6 +1453,7 @@ textarea {
     this.sim = sim;
     this.pal = buildPalette();
     this.stage = buildStageLUT();
+    this.relicPal = buildRelicPalette();
     this.shade = buildShadeTex(world.seed);
     this.goldCol = [pack(255, 214, 64), pack(255, 236, 140), pack(255, 196, 30), pack(255, 248, 200)];
 
@@ -1338,6 +1550,7 @@ textarea {
   R.cellColor = function (i, x, y) {
     const c = this.w.cells[i], t = c & MASK;
     if (!t) return y < this.w.surface[x] ? this.sky[y] : this.cave[y];
+    if (t === T.RELIC) return this.relicPal[this.w.dmg[i]];
     if (t === T.GOLD) return this.goldColor(i, x, y);
     const d = this.w.dmg[i];
     const st = d ? this.stage[(t << 8) | d] : 0;
@@ -1360,13 +1573,14 @@ textarea {
   R.renderTile = function (tx, ty, ctx) {
     const x0 = tx * TL, y0 = ty * TL, w = Math.min(TL, W - x0), h = Math.min(TL, H - y0);
     const cells = this.w.cells, dmg = this.w.dmg, surf = this.w.surface, buf = this.tileBuf;
-    const pal = this.pal, stage = this.stage, shade = this.shade, sky = this.sky, cave = this.cave;
+    const pal = this.pal, stage = this.stage, shade = this.shade, sky = this.sky, cave = this.cave, rpal = this.relicPal;
     for (let yy = 0; yy < h; yy++) {
       const y = y0 + yy, row = y * W, o = yy * TL, srow = (y & 255) << 8;
       const skyC = sky[y], caveC = cave[y];
       for (let xx = 0; xx < w; xx++) {
         const x = x0 + xx, i = row + x, c = cells[i], t = c & MASK;
         if (!t) { buf[o + xx] = y < surf[x] ? skyC : caveC; continue; }
+        if (t === T.RELIC) { buf[o + xx] = rpal[dmg[i]]; continue; }
         if (t === T.GOLD) { buf[o + xx] = this.goldColor(i, x, y); continue; }
         const d = dmg[i];
         buf[o + xx] = pal[(t << 5) | ((c >> 7) << 4) | ((d ? stage[(t << 8) | d] : 0) << 2) | shade[srow | (x & 255)]];
@@ -1378,7 +1592,7 @@ textarea {
   R.renderOvBlock = function (tx, ty) {
     const B = TL / OV, x0 = tx * TL, y0 = ty * TL;
     const w = Math.min(B, Math.ceil((W - x0) / OV)), h = Math.min(B, Math.ceil((H - y0) / OV));
-    const buf = this.ovBuf, cells = this.w.cells, surf = this.w.surface;
+    const buf = this.ovBuf, cells = this.w.cells, surf = this.w.surface, dmg = this.w.dmg, rpal = this.relicPal;
     const pal = this.pal, shade = this.shade, sky = this.sky, cave = this.cave;
     for (let oy = 0; oy < h; oy++) {
       for (let ox = 0; ox < w; ox++) {
@@ -1391,6 +1605,7 @@ textarea {
             if (x >= W) continue;
             const i = y * W + x, cv = cells[i], t = cv & MASK;
             const c = !t ? (y < surf[x] ? sky[y] : cave[y])
+              : t === T.RELIC ? rpal[dmg[i]]
               : t === T.GOLD ? this.goldColor(i, x, y)
               : pal[(t << 5) | ((cv >> 7) << 4) | shade[((y & 255) << 8) | (x & 255)]];
             r += c & 255; g += (c >> 8) & 255; b += (c >> 16) & 255; n++;
@@ -2194,7 +2409,7 @@ textarea {
 
     let saved = null;
     if (restore) { try { saved = await PQ.Save.loadWorld(world.seed); } catch (e) { saved = null; } }
-    if (saved) PQ.World.applyMined(world, saved.mined);
+    if (saved) PQ.World.applyMined(world, saved.mined, !state.found);
     else state.drop = { x: D.W / 2, y: world.surface[D.W >> 1] - 30 };
 
     const sim = new PQ.Sim(world, state);
