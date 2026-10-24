@@ -413,6 +413,9 @@ textarea {
     OV: 2,                                  // overview downscale factor
     SURFACE: 220,                           // mean ground line, rows from the top
     MAX_BALLS: 4000,
+    FOG: 4,                                 // fog-of-war cell edge, world px (code shifts by 2: keep it 4)
+    SIGHT: 20,                              // how far a ball lights up the rock around it, px
+    RELIC_REWARD_S: 30,                     // a relic find pays this many seconds of income
     TYPE_MASK: 0x0f,
     POISON: 0x80,
 
@@ -509,6 +512,7 @@ textarea {
   const PQ = root.PQ;
   const D = PQ.DATA, T = D.T;
   const W = D.W, H = D.H, N = D.N;
+  const FW = Math.ceil(W / D.FOG), FH = Math.ceil(H / D.FOG);
 
   function mulberry32(a) {
     return function () {
@@ -560,6 +564,9 @@ textarea {
       dmg: new Uint8Array(N),
       mined: new Uint8Array((N + 7) >> 3),
       surface: new Int16Array(W),
+      fog: new Uint8Array(FW * FH),         // 0 hidden .. 255 seen, one per FOG x FOG cell
+      relicCell: new Uint8Array(FW * FH),   // relic index + 1 for fog cells that hold relic pixels
+      FW, FH,
       relics: [],
       gold: { x: 0, y: 0 },
       solidTotal: 0,
@@ -648,6 +655,51 @@ textarea {
     let solid = 0;
     for (let i = 0; i < N; i++) { const t = cells[i]; if (t !== T.AIR && t !== T.RELIC) solid++; }
     w.solidTotal = solid;
+
+    w.relicCell.fill(0);
+    w.relics.forEach((r, idx) => {
+      for (let y = Math.max(0, r.y0); y < Math.min(H, r.y1); y++) {
+        for (let x = Math.max(0, r.x0); x < Math.min(W, r.x1); x++) {
+          if (cells[y * W + x] === T.RELIC) w.relicCell[(y >> 2) * FW + (x >> 2)] = idx + 1;
+        }
+      }
+    });
+    initFog(w);
+  }
+
+  // The sky and a thin skin of ground start uncovered; everything below is fog.
+  function initFog(w) {
+    w.fog.fill(0);
+    for (let cx = 0; cx < FW; cx++) {
+      let sf = H;
+      for (let x = cx * 4; x < Math.min(W, cx * 4 + 4); x++) sf = Math.min(sf, w.surface[x]);
+      const rows = Math.min(FH, Math.ceil((sf + 10) / 4));
+      for (let cy = 0; cy < rows; cy++) w.fog[cy * FW + cx] = 255;
+    }
+  }
+
+  // For saves made before fog existed: uncover everything already mined, plus a margin.
+  function fogFromMined(w) {
+    const fog = w.fog, m = w.mined;
+    for (let b = 0; b < m.length; b++) {
+      if (!m[b]) continue;
+      for (let k = 0; k < 8; k++) {
+        if (!((m[b] >> k) & 1)) continue;
+        const i = (b << 3) + k, x = i % W, y = (i / W) | 0;
+        fog[(y >> 2) * FW + (x >> 2)] = 255;
+      }
+    }
+    for (let pass = 0; pass < 4; pass++) {
+      const src = fog.slice();
+      for (let cy = 0; cy < FH; cy++) {
+        for (let cx = 0; cx < FW; cx++) {
+          const k = cy * FW + cx;
+          if (src[k] === 255) continue;
+          if ((cx > 0 && src[k - 1] === 255) || (cx < FW - 1 && src[k + 1] === 255) ||
+              (cy > 0 && src[k - FW] === 255) || (cy < FH - 1 && src[k + FW] === 255)) fog[k] = 255;
+        }
+      }
+    }
   }
 
   function generate(w) {
@@ -678,7 +730,7 @@ textarea {
     w.minedCount = count;
   }
 
-  PQ.World = { create, prepare, genRows, finalize, generate, applyMined, mulberry32, hash2, vnoise };
+  PQ.World = { create, prepare, genRows, finalize, generate, applyMined, initFog, fogFromMined, mulberry32, hash2, vnoise };
 })();
 
 </script>
@@ -732,7 +784,7 @@ textarea {
       },
     },
     {
-      name: 'Spine', weight: 2, hw: 84, hh: 74, bevel: 5, tilt: 0.5, base: M.BONE,
+      name: 'Spine and ribs', weight: 2, hw: 84, hh: 74, bevel: 5, tilt: 0.5, base: M.BONE,
       sdf(x, y) {
         let d = 1e9;
         for (let i = 0; i < 7; i++) {
@@ -757,7 +809,7 @@ textarea {
       },
     },
     {
-      name: 'Skull', weight: 2, hw: 74, hh: 40, bevel: 9, tilt: 0.6, base: M.BONE,
+      name: 'Canid skull', weight: 2, hw: 74, hh: 40, bevel: 9, tilt: 0.6, base: M.BONE,
       sdf(x, y) {
         let d = ellipse(x, y, 20, -8, 40, 27);                    // braincase
         d = smin(d, circle(x, y, 52, -2, 15), 8);                 // back of the skull
@@ -791,7 +843,7 @@ textarea {
       },
     },
     {
-      name: 'Anchor', weight: 1, hw: 60, hh: 78, bevel: 4, tilt: 0.9, base: M.IRON,
+      name: 'Iron anchor', weight: 1, hw: 60, hh: 78, bevel: 4, tilt: 0.9, base: M.IRON,
       sdf(x, y) {
         let d = box(x, y, 0, -2, 4.5, 46, 2);                     // shank
         d = Math.min(d, ring(x, y, 0, -60, 11, 3.5));             // ring
@@ -802,7 +854,7 @@ textarea {
       },
     },
     {
-      name: 'Gear', weight: 1, hw: 50, hh: 50, bevel: 3, tilt: Math.PI, base: M.BRONZE,
+      name: 'Bronze gear', weight: 1, hw: 50, hh: 50, bevel: 3, tilt: Math.PI, base: M.BRONZE,
       sdf(x, y) {
         const r = hyp(x, y), th = Math.atan2(y, x);
         const tooth = clamp((Math.cos(th * 12) + 0.15) * 2.2, 0, 1) * 7;
@@ -844,7 +896,7 @@ textarea {
       mat(x) { return x < -59 ? M.BRONZE : M.IRON; },
     },
     {
-      name: 'Pawprint', weight: 1, hw: 50, hh: 46, bevel: 5, tilt: 0.7, base: M.FOSSIL,
+      name: 'Pawprint slab', weight: 1, hw: 50, hh: 46, bevel: 5, tilt: 0.7, base: M.FOSSIL,
       sdf(x, y) { return box(x, y, 0, 0, 46, 42, 12) + 5 * (noise(x / 7, y / 7, 3) - 0.5); },
       height(x, y) {
         const dip = (cx, cy, rx, ry) => clamp(-ellipse(x, y, cx, cy, rx, ry) / 4, 0, 1);
@@ -993,6 +1045,7 @@ textarea {
       owned, up, global: { tap: 0, value: 0, radar: 0 },
       drop: { x: W / 2, y: 110 },
       found: false, foundTime: 0, goldReward: 0,
+      relics: [],                           // indexes of relics uncovered in this world
       playTime: 0, broken: 0, rate: 0,
       savedAt: Date.now(),
       settings: { particles: true },
@@ -1010,6 +1063,7 @@ textarea {
     this.bt = new Uint8Array(M);
     this.cd = new Float32Array(M);
     this.pl = new Uint8Array(M);
+    this.lastCell = new Int32Array(M).fill(-1);   // fog cell each ball was last in
     this.tilesX = Math.ceil(W / D.TILE);
     this.tilesY = Math.ceil(H / D.TILE);
     this.tileDirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
@@ -1023,6 +1077,7 @@ textarea {
     this.hist = [state.earned];
     this.rateT = 0;
     this.rng = PQ.World.mulberry32((state.seed ^ 0x5bd1e995) >>> 0);
+    this.relicSeen = new Set(state.relics || []);
     this.derive();
   }
 
@@ -1054,6 +1109,50 @@ textarea {
     this.ovDirty[k] = 1;
   };
 
+  // Lift the fog in a soft-edged circle: fully clear inside r - 4, fading out to r + 4.
+  P.reveal = function (px, py, r) {
+    const w = this.w, fog = w.fog, FW = w.FW, FH = w.FH;
+    const cx0 = Math.max(0, Math.floor((px - r - 4) / 4)), cx1 = Math.min(FW - 1, Math.floor((px + r + 4) / 4));
+    const cy0 = Math.max(0, Math.floor((py - r - 4) / 4)), cy1 = Math.min(FH - 1, Math.floor((py + r + 4) / 4));
+    for (let cy = cy0; cy <= cy1; cy++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const k = cy * FW + cx, old = fog[k];
+        if (old === 255) continue;
+        const v = (r + 4 - Math.hypot(cx * 4 + 2 - px, cy * 4 + 2 - py)) * 32;
+        if (v <= old) continue;
+        const nv = v >= 255 ? 255 : v | 0;
+        fog[k] = nv;
+        // The renderer blends across cell edges, so neighbouring tiles may change too.
+        this.dirty(Math.max(0, cx * 4 - 4), Math.max(0, cy * 4 - 4));
+        this.dirty(Math.min(W - 1, cx * 4 + 7), Math.min(H - 1, cy * 4 + 7));
+        if (old < 160 && nv >= 160 && w.relicCell[k]) this.discover(w.relicCell[k] - 1);
+      }
+    }
+  };
+
+  // A ball lights the rock around it. Skipped when everything in reach is already seen.
+  P.revealBall = function (x, y) {
+    const fog = this.w.fog, FW = this.w.FW, R = D.SIGHT;
+    const at = (px, py) => {
+      const cx = px < 0 ? 0 : px >= W ? (W - 1) >> 2 : px >> 2, cy = py < 0 ? 0 : py >= H ? (H - 1) >> 2 : py >> 2;
+      return fog[cy * FW + cx];
+    };
+    const ix = x | 0, iy = y | 0;
+    if (at(ix, iy) === 255 && at(ix - R, iy) === 255 && at(ix + R, iy) === 255 &&
+        at(ix, iy - R) === 255 && at(ix, iy + R) === 255) return;
+    this.reveal(x, y, R);
+  };
+
+  P.discover = function (i) {
+    if (this.relicSeen.has(i)) return;
+    this.relicSeen.add(i);
+    const s = this.s;
+    s.relics.push(i);
+    const reward = Math.max(500, (s.rate || 0) * D.RELIC_REWARD_S);
+    s.bits += reward; s.earned += reward; s.lifetime += reward;
+    this.events.push({ type: 'relic', i, name: this.w.relics[i].name, reward });
+  };
+
   P.spawn = function (t, x, y) {
     if (this.n >= D.MAX_BALLS) return false;
     const k = this.n++;
@@ -1071,6 +1170,7 @@ textarea {
     this.bt[k] = t;
     this.cd[k] = 0;
     this.pl[k] = this.pierceMax[t];
+    this.lastCell[k] = -1;
     return true;
   };
 
@@ -1097,6 +1197,7 @@ textarea {
     s.bits += v; s.earned += v; s.lifetime += v;
     s.broken++;
     this.dirty(x, y);
+    this.reveal(x, y, 6);
     if (this.fxn < 256) { this.fxI[this.fxn] = i; this.fxT[this.fxn] = t; this.fxn++; }
     const g = w.gold;
     if (t === T.GOLD) {
@@ -1219,6 +1320,8 @@ textarea {
         }
       }
       bx[k] = x; by[k] = y; VX[k] = vx; VY[k] = vy;
+      const cell = ((y | 0) >> 2) * this.w.FW + ((x | 0) >> 2);
+      if (cell !== this.lastCell[k]) { this.lastCell[k] = cell; this.revealBall(x, y); }
     }
   };
 
@@ -1428,6 +1531,9 @@ textarea {
     return pal;
   }
 
+  // 4x4 ordered-dither thresholds (1..255): fog edges break up into a pixel-art stipple.
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(b => Math.round((b + 0.5) * 16));
+
   function buildStageLUT() {
     const lut = new Uint8Array(16 * 256);
     MAT.forEach(m => {
@@ -1454,6 +1560,8 @@ textarea {
     this.pal = buildPalette();
     this.stage = buildStageLUT();
     this.relicPal = buildRelicPalette();
+    // Unexplored rock: dark slate, coarse grain so it never reads as real strata.
+    this.fogCol = [0.8, 0.92, 1, 1.1].map(k => pack(34 * k, 31 * k, 42 * k));
     this.shade = buildShadeTex(world.seed);
     this.goldCol = [pack(255, 214, 64), pack(255, 236, 140), pack(255, 196, 30), pack(255, 248, 200)];
 
@@ -1546,7 +1654,27 @@ textarea {
     this.lookAt(d.x, d.y + 0.2 * this.cssH / zz, zz);
   };
 
-  // Colour of one cell, as drawn.
+  // Fog at a pixel, bilinear between the 4 px fog cells (0 hidden .. 255 seen).
+  R.fogAt = function (x, y) {
+    const fog = this.w.fog, FW = this.w.FW, FH = this.w.FH;
+    const gx = (x + 0.5) / 4 - 0.5, gy = (y + 0.5) / 4 - 0.5;
+    let x0 = Math.floor(gx), y0 = Math.floor(gy);
+    const fx = gx - x0, fy = gy - y0;
+    const x1 = Math.min(FW - 1, x0 + 1), y1 = Math.min(FH - 1, y0 + 1);
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0);
+    const a = fog[y0 * FW + x0], b = fog[y0 * FW + x1], c = fog[y1 * FW + x0], d = fog[y1 * FW + x1];
+    return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+  };
+
+  // Is this pixel still hidden? Dithered so the edge of the fog is a stipple, not a line.
+  R.fogged = function (x, y) {
+    return this.fogAt(x, y) < BAYER[((y & 3) << 2) | (x & 3)];
+  };
+
+  R.fogColor = function (x, y) { return this.fogCol[this.shade[(((y >> 1) & 255) << 8) | ((x >> 1) & 255)]]; };
+
+  // Colour of one cell, as drawn, ignoring fog (the relic preview uses this).
+
   R.cellColor = function (i, x, y) {
     const c = this.w.cells[i], t = c & MASK;
     if (!t) return y < this.w.surface[x] ? this.sky[y] : this.cave[y];
@@ -1574,11 +1702,14 @@ textarea {
     const x0 = tx * TL, y0 = ty * TL, w = Math.min(TL, W - x0), h = Math.min(TL, H - y0);
     const cells = this.w.cells, dmg = this.w.dmg, surf = this.w.surface, buf = this.tileBuf;
     const pal = this.pal, stage = this.stage, shade = this.shade, sky = this.sky, cave = this.cave, rpal = this.relicPal;
+    const fog = this.w.fog, FW = this.w.FW;
     for (let yy = 0; yy < h; yy++) {
-      const y = y0 + yy, row = y * W, o = yy * TL, srow = (y & 255) << 8;
+      const y = y0 + yy, row = y * W, o = yy * TL, srow = (y & 255) << 8, frow = (y >> 2) * FW;
       const skyC = sky[y], caveC = cave[y];
       for (let xx = 0; xx < w; xx++) {
-        const x = x0 + xx, i = row + x, c = cells[i], t = c & MASK;
+        const x = x0 + xx, i = row + x;
+        if (fog[frow + (x >> 2)] !== 255 && this.fogged(x, y)) { buf[o + xx] = this.fogColor(x, y); continue; }
+        const c = cells[i], t = c & MASK;
         if (!t) { buf[o + xx] = y < surf[x] ? skyC : caveC; continue; }
         if (t === T.RELIC) { buf[o + xx] = rpal[dmg[i]]; continue; }
         if (t === T.GOLD) { buf[o + xx] = this.goldColor(i, x, y); continue; }
@@ -1604,7 +1735,7 @@ textarea {
             const x = x0 + ox * OV + sx;
             if (x >= W) continue;
             const i = y * W + x, cv = cells[i], t = cv & MASK;
-            const c = !t ? (y < surf[x] ? sky[y] : cave[y])
+            const c = this.w.fog[(y >> 2) * this.w.FW + (x >> 2)] < 128 ? this.fogColor(x, y) : !t ? (y < surf[x] ? sky[y] : cave[y])
               : t === T.RELIC ? rpal[dmg[i]]
               : t === T.GOLD ? this.goldColor(i, x, y)
               : pal[(t << 5) | ((cv >> 7) << 4) | shade[((y & 255) << 8) | (x & 255)]];
@@ -1761,7 +1892,7 @@ textarea {
   R.drawGold = function (ctx, toDX, toDY, vx0, vy0, vx1, vy1) {
     const s = this.sim.s, g = this.w.gold;
     if (s.found || g.x < vx0 - 20 || g.x > vx1 + 20 || g.y < vy0 - 20 || g.y > vy1 + 20) return;
-    if (!this.exposed(g.x, g.y)) return;
+    if (!this.exposed(g.x, g.y) || this.fogAt(g.x, g.y) < 128) return;
     const cx = toDX(g.x + 0.5), cy = toDY(g.y + 0.5), dpr = this.dpr;
     const pulse = 0.5 + 0.5 * Math.sin(this.time * 5);
     ctx.strokeStyle = `rgba(255,214,64,${0.45 + 0.5 * pulse})`;
@@ -1924,6 +2055,7 @@ textarea {
     for (const b of PQ.DATA.BALLS) s.up[b.key] = Object.assign({ dmg: 0, spd: 0, sp: 0 }, (meta.up || {})[b.key]);
     s.global = Object.assign({ tap: 0, value: 0, radar: 0 }, meta.global);
     s.settings = Object.assign({ particles: true }, meta.settings);
+    s.relics = Array.isArray(meta.relics) ? meta.relics : [];
     return s;
   }
 
@@ -1974,14 +2106,14 @@ textarea {
 
   async function worldRecord(world, sim) {
     const balls = sim.exportBalls();
-    return { seed: world.seed, mined: await pack(world.mined), balls: new Uint8Array(balls.buffer.slice(0)) };
+    return { seed: world.seed, mined: await pack(world.mined), fog: await pack(world.fog), balls: new Uint8Array(balls.buffer.slice(0)) };
   }
 
   async function saveWorld(world, sim) {
     const rec = await worldRecord(world, sim);
     try { await idbPut('world', rec); return true; } catch (e) { /* fall through */ }
     try {
-      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, z: rec.mined.z, mined: b64(rec.mined.d), balls: b64(rec.balls) }));
+      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, z: rec.mined.z, mined: b64(rec.mined.d), fog: b64(rec.fog.d), balls: b64(rec.balls) }));
       return true;
     } catch (e) { return false; }
   }
@@ -1992,12 +2124,12 @@ textarea {
     if (!rec) {
       try {
         const s = localStorage.getItem(WORLD_LS);
-        if (s) { const j = JSON.parse(s); rec = { seed: j.seed, mined: { z: j.z, d: unb64(j.mined) }, balls: unb64(j.balls) }; }
+        if (s) { const j = JSON.parse(s); rec = { seed: j.seed, mined: { z: j.z, d: unb64(j.mined) }, fog: j.fog ? { z: j.z, d: unb64(j.fog) } : null, balls: unb64(j.balls) }; }
       } catch (e) { rec = null; }
     }
     if (!rec || rec.seed !== seed) return null;
     const balls = new Float32Array(rec.balls.buffer.slice(rec.balls.byteOffset, rec.balls.byteOffset + rec.balls.byteLength));
-    return { mined: await unpack(rec.mined), balls };
+    return { mined: await unpack(rec.mined), fog: rec.fog ? await unpack(rec.fog) : null, balls };
   }
 
   async function clearWorld() {
@@ -2008,7 +2140,7 @@ textarea {
   // A text save code that can be pasted into another device.
   async function exportCode(state, world, sim) {
     const rec = await worldRecord(world, sim);
-    const body = JSON.stringify({ meta: state, z: rec.mined.z, mined: b64(rec.mined.d), balls: b64(rec.balls) });
+    const body = JSON.stringify({ meta: state, z: rec.mined.z, mined: b64(rec.mined.d), fog: b64(rec.fog.d), balls: b64(rec.balls) });
     return 'PQ1:' + b64(new TextEncoder().encode(body));
   }
 
@@ -2018,9 +2150,9 @@ textarea {
     let j;
     try { j = JSON.parse(new TextDecoder().decode(unb64(text.slice(4)))); } catch (e) { throw new Error('The save code is incomplete. Copy the whole code and try again.'); }
     if (!j.meta || typeof j.meta.seed !== 'number') throw new Error('The save code has no game in it.');
-    const rec = { seed: j.meta.seed >>> 0, mined: { z: j.z, d: unb64(j.mined) }, balls: unb64(j.balls) };
+    const rec = { seed: j.meta.seed >>> 0, mined: { z: j.z, d: unb64(j.mined) }, fog: j.fog ? { z: j.z, d: unb64(j.fog) } : null, balls: unb64(j.balls) };
     try { await idbPut('world', rec); } catch (e) {
-      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, z: j.z, mined: j.mined, balls: j.balls }));
+      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, z: j.z, mined: j.mined, fog: j.fog, balls: j.balls }));
     }
     j.meta.savedAt = Date.now();
     localStorage.setItem(META, JSON.stringify(j.meta));
@@ -2116,6 +2248,7 @@ textarea {
         <div><dt>Stars</dt><dd id="st-stars">0</dd></div>
         <div><dt>Earned here</dt><dd id="st-earned">0</dd></div>
         <div><dt>Earned ever</dt><dd id="st-life">0</dd></div>
+        <div><dt>Relics found</dt><dd id="st-relics">0</dd></div>
       </dl>
       <div class="group-h">Settings</div>
       <label class="toggle"><input type="checkbox" id="optParticles" ${s.settings.particles ? 'checked' : ''}> Rock chips when pixels break</label>
@@ -2235,9 +2368,15 @@ textarea {
         <li>Spend bits on more balls and upgrades.</li>
         <li>Tap rock to dig it yourself. Hold to keep digging.</li>
         <li>Tap open space to move the drop point, where new balls appear.</li>
+        <li>The dark is unexplored rock. Balls light it up as they go, and relics are buried in it.</li>
         <li>Drag to look around. Pinch to zoom.</li>
       </ul>
       <div class="actions"><button type="button" class="btn gold" data-act="close">Start digging</button></div>`);
+  };
+
+  U.relic = function (e) {
+    const n = this.g.state.relics.length, total = this.g.world.relics.length;
+    this.toast(`Relic uncovered: ${e.name} (${n}/${total}). +${fmt(e.reward)} bits`, 3200);
   };
 
   U.offline = function (r) {
@@ -2335,6 +2474,7 @@ textarea {
       $('st-stars').textContent = s.stars;
       $('st-earned').textContent = fmt(s.earned);
       $('st-life').textContent = fmt(s.lifetime);
+      $('st-relics').textContent = `${s.relics.length} / ${g.world.relics.length}`;
     }
   };
 
@@ -2409,7 +2549,11 @@ textarea {
 
     let saved = null;
     if (restore) { try { saved = await PQ.Save.loadWorld(world.seed); } catch (e) { saved = null; } }
-    if (saved) PQ.World.applyMined(world, saved.mined, !state.found);
+    if (saved) {
+      PQ.World.applyMined(world, saved.mined, !state.found);
+      if (saved.fog && saved.fog.length === world.fog.length) world.fog.set(saved.fog);
+      else PQ.World.fogFromMined(world);                     // save from before fog existed
+    }
     else state.drop = { x: D.W / 2, y: world.surface[D.W >> 1] - 30 };
 
     const sim = new PQ.Sim(world, state);
@@ -2478,6 +2622,7 @@ textarea {
     renderer.draw(dt);
     for (const e of sim.events.splice(0)) {
       if (e.type === 'gold') { game.ui.gold(); saveAll(); }
+      if (e.type === 'relic') game.ui.relic(e);
     }
     game.ui.tick(dt);
 
