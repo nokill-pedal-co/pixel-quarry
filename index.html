@@ -1,0 +1,2306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pixel Quarry</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="description" content="Ten million pixels, one of them gold. Buy balls, mine the world, find the Golden Pixel.">
+<meta name="theme-color" content="#0f0d15">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pixel Quarry">
+<link rel="manifest" href="manifest.webmanifest"><!--pwa-->
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png"><!--pwa-->
+<link rel="icon" type="image/png" href="icons/icon-192.png"><!--pwa-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@500;700&display=swap">
+<style>
+/* Layout: the quarry canvas fills the screen; a translucent HUD strip rides the top,
+   a pull-up shop sheet sits at the bottom. One deliberate dark world, one gold accent. */
+:root {
+  --ground: #0f0d15;
+  --panel: #18151f;
+  --panel-2: #221e2c;
+  --line: #312b3f;
+  --ink: #ece6d8;
+  --muted: #9a93a8;
+  --gold: #ffd640;
+  --gold-ink: #1c1604;
+  --warn: #ff6a58;
+  --display: 'Pixelify Sans', ui-monospace, 'Cascadia Mono', Menlo, monospace;
+  --body: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--ground);
+  color: var(--ink);
+  font: 15px/1.4 var(--body);
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+#world {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* ---- HUD ---- */
+.hud {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+  padding-bottom: 18px;
+  padding-left: var(--gutter-l);
+  padding-right: var(--gutter-r);
+  background: linear-gradient(to bottom, rgba(15, 13, 21, 0.88) 55%, rgba(15, 13, 21, 0));
+  pointer-events: none;
+}
+.hud > * { pointer-events: auto; min-width: 0; }
+.bits {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 700 30px/1 var(--display);
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.bits::before {
+  content: '';
+  flex: none;
+  width: 13px; height: 13px;
+  background: var(--gold);
+  box-shadow: 0 0 12px rgba(255, 214, 64, 0.55);
+}
+.rate { margin-top: 4px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.hud-right { text-align: right; }
+.ballcount { font: 500 20px/1 var(--display); font-variant-numeric: tabular-nums; }
+.ballcount small { font: 13px var(--body); color: var(--muted); }
+.mini-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+.chip {
+  min-height: 34px;
+  padding: 0 12px;
+  background: rgba(24, 21, 31, 0.9);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.chip:active { background: var(--panel-2); }
+
+.radar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  padding: 5px 10px;
+  background: rgba(24, 21, 31, 0.9);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.radar[hidden] { display: none; }
+.heat { flex: none; width: 64px; height: 6px; background: var(--line); }
+.heat i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #4aa8ff, var(--gold) 65%, var(--warn)) 0 0 / 64px 100%;
+  transition: width 0.4s;
+}
+
+/* ---- shop sheet ---- */
+.sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35);
+}
+@media (min-width: 561px) { .sheet { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
+.sheet-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 6px;
+  padding-left: var(--gutter-l);
+  padding-right: var(--gutter-r);
+}
+.tabs { display: flex; gap: 2px; flex: 1; min-width: 0; }
+.tabs button {
+  position: relative;
+  min-height: 44px;
+  padding: 0 10px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font: 500 16px var(--display);
+  color: var(--muted);
+}
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--gold); }
+.dot { position: absolute; top: 9px; right: 2px; width: 6px; height: 6px; background: var(--gold); }
+.buyrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.buymode { display: flex; border: 1px solid var(--line); flex: none; }
+.buymode button {
+  min-height: 32px;
+  min-width: 38px;
+  padding: 0 7px;
+  background: none;
+  border: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.buymode button[aria-pressed="true"] { background: var(--panel-2); color: var(--gold); }
+.grip {
+  flex: none;
+  width: 36px; height: 36px;
+  background: none;
+  border: 1px solid var(--line);
+  position: relative;
+}
+.grip::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 10px; height: 10px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: translate(-50%, -75%) rotate(45deg);
+}
+.sheet:not(.open) .grip::before { transform: translate(-50%, -25%) rotate(-135deg); }
+.sheet-body {
+  max-height: 0;
+  overflow: hidden;
+  padding-left: var(--gutter-l);
+  padding-right: var(--gutter-r);
+  transition: max-height 0.22s ease;
+}
+.sheet.open .sheet-body { max-height: 40vh; max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; }
+.panel { padding-bottom: 12px; }
+
+.group-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 2px;
+  font: 500 13px var(--display);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.row.plain { grid-template-columns: minmax(0, 1fr) auto; }
+.swatch { width: 14px; height: 14px; background: var(--c); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45); }
+.name { font: 500 17px/1.2 var(--display); }
+.name .count, .name .lv { font: 13px var(--body); color: var(--muted); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.desc { margin-top: 2px; font-size: 13px; line-height: 1.35; color: var(--muted); }
+.row.locked .name, .row.locked .swatch { opacity: 0.45; filter: grayscale(1); }
+.buy {
+  min-width: 96px;
+  min-height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1px;
+  padding: 5px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.buy .lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.buy .cost { font: 500 16px var(--display); color: var(--gold); font-variant-numeric: tabular-nums; }
+.buy.afford { border-color: rgba(255, 214, 64, 0.6); }
+.buy:disabled { cursor: default; opacity: 0.5; }
+.buy:disabled .cost { color: var(--muted); }
+.buy:not(:disabled):active { transform: translateY(1px); }
+
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin: 12px 0 4px; }
+.stats div { min-width: 0; }
+.stats dt { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.stats dd { margin: 2px 0 0; font: 500 19px var(--display); font-variant-numeric: tabular-nums; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.btn {
+  min-height: 44px;
+  padding: 0 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 14px;
+}
+.btn.gold { background: var(--gold); border-color: var(--gold); color: var(--gold-ink); font-weight: 700; }
+.btn.danger { border-color: var(--warn); color: var(--warn); }
+.toggle { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; }
+.toggle input { width: 20px; height: 20px; accent-color: var(--gold); }
+.note { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+.confirm { margin-top: 10px; padding: 12px; border: 1px solid var(--warn); }
+.confirm p { margin: 0 0 8px; font-size: 14px; }
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 84px;
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--ground);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font: 11px/1.3 ui-monospace, Menlo, monospace;
+  -webkit-user-select: text;
+  user-select: text;
+  word-break: break-all;
+}
+
+/* ---- toast, modal, loading ---- */
+.toast {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + 96px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 8px 14px;
+  background: rgba(24, 21, 31, 0.96);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+.modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(6, 5, 9, 0.72);
+}
+.modal[hidden] { display: none; }
+.card {
+  width: 100%;
+  max-width: 380px;
+  box-sizing: border-box;
+  padding: 22px 20px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.card h2 { margin: 0 0 10px; font: 700 26px/1.1 var(--display); color: var(--gold); text-wrap: balance; }
+.card p { margin: 0 0 10px; color: var(--ink); line-height: 1.45; }
+.card p.sub { color: var(--muted); font-size: 14px; }
+.card ul { margin: 0 0 12px; padding-left: 18px; color: var(--muted); font-size: 14px; }
+.card li { margin: 4px 0; }
+.card .actions { margin-top: 16px; }
+.card .big { font: 700 34px var(--display); color: var(--gold); margin: 4px 0 10px; font-variant-numeric: tabular-nums; }
+
+.loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: var(--ground);
+  padding-left: var(--gutter-l);
+  padding-right: var(--gutter-r);
+}
+.loading[hidden] { display: none; }
+.logo { font: 700 40px/1 var(--display); letter-spacing: 0.02em; text-transform: uppercase; }
+.logo b { color: var(--gold); margin-left: 10px; font-weight: 700; }
+.bar { width: 220px; max-width: 70vw; height: 8px; border: 1px solid var(--line); }
+.bar i { display: block; height: 100%; width: 0; background: var(--gold); }
+#loadText { margin: 0; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-body, .heat i { transition: none; }
+}
+
+</style>
+</head>
+<body>
+<canvas id="world" aria-label="The quarry. Drag to look around, pinch to zoom, tap rock to dig, tap open space to move the drop point."></canvas>
+
+<header class="hud">
+  <div class="hud-left">
+    <div class="bits" id="bits" aria-live="off">0</div>
+    <div class="rate" id="rate">+0 bits/s</div>
+    <div class="radar" id="radar" title="Gold radar: how close the middle of your view is to the Golden Pixel" hidden>
+      <span class="heat"><i id="heat"></i></span>
+      <span id="radarText">Cold</span>
+    </div>
+  </div>
+  <div class="hud-right">
+    <div class="ballcount"><span id="ballCount">1</span> <small>balls</small></div>
+    <div class="mini-btns">
+      <button class="chip" id="btnDrop" type="button" title="Jump to the drop point">Drop</button>
+      <button class="chip" id="btnMap" type="button" title="Zoom out to the whole world">Map</button>
+    </div>
+  </div>
+</header>
+
+<section class="sheet open" id="sheet" aria-label="Shop">
+  <div class="sheet-bar">
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-balls" data-tab="balls" aria-selected="true">Balls</button>
+      <button type="button" role="tab" id="tab-upgrades" data-tab="upgrades" aria-selected="false">Upgrades<span class="dot" id="upDot" hidden></span></button>
+      <button type="button" role="tab" id="tab-world" data-tab="world" aria-selected="false">World</button>
+    </nav>
+    <button type="button" class="grip" id="grip" aria-label="Hide shop" aria-expanded="true"></button>
+  </div>
+  <div class="sheet-body" id="sheetBody">
+    <div class="panel" id="panel-balls" role="tabpanel"></div>
+    <div class="panel" id="panel-upgrades" role="tabpanel" hidden></div>
+    <div class="panel" id="panel-world" role="tabpanel" hidden></div>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status" hidden></div>
+<div class="modal" id="modal" hidden><div class="card" id="modalCard" role="dialog" aria-modal="true"></div></div>
+
+<div class="loading" id="loading">
+  <div class="logo">Pixel<b>Quarry</b></div>
+  <div class="bar"><i id="loadBar"></i></div>
+  <p id="loadText">Generating 10,000,000 pixels</p>
+</div>
+
+<script>
+// Pixel Quarry: all tables and constants. No logic lives here.
+(function () {
+  const root = typeof window !== 'undefined' ? window : globalThis;
+  const PQ = root.PQ = root.PQ || {};
+
+  const W = 2500, H = 4000;               // 10,000,000 pixels
+
+  PQ.DATA = {
+    W, H, N: W * H,
+    TILE: 128,                              // render tile edge, world px
+    OV: 2,                                  // overview downscale factor
+    SURFACE: 220,                           // mean ground line, rows from the top
+    MAX_BALLS: 4000,
+    TYPE_MASK: 0x0f,
+    POISON: 0x80,
+
+    // Cell types. hp = hits of 1 damage, val = bits paid when broken.
+    // col = base colour; the renderer derives shades from it.
+    MAT: [
+      { id: 0,  key: 'air',      name: 'Air' },
+      { id: 1,  key: 'grass',    name: 'Turf',      hp: 1,   val: 1,   col: [86, 148, 70] },
+      { id: 2,  key: 'soil',     name: 'Topsoil',   hp: 1,   val: 1,   col: [122, 86, 58] },
+      { id: 3,  key: 'clay',     name: 'Clay',      hp: 3,   val: 4,   col: [168, 104, 72] },
+      { id: 4,  key: 'stone',    name: 'Stone',     hp: 8,   val: 14,  col: [118, 116, 122] },
+      { id: 5,  key: 'basalt',   name: 'Basalt',    hp: 40,  val: 60,  col: [66, 64, 78] },
+      { id: 6,  key: 'obsidian', name: 'Obsidian',  hp: 140, val: 240, col: [38, 28, 54] },
+      { id: 7,  key: 'copper',   name: 'Copper',    hp: 6,   val: 60,  col: [214, 122, 62] },
+      { id: 8,  key: 'silver',   name: 'Silver',    hp: 20,  val: 400, col: [196, 210, 222] },
+      { id: 9,  key: 'amethyst', name: 'Amethyst',  hp: 50,  val: 3000, col: [178, 92, 232] },
+      { id: 10, key: 'relic',    name: 'Relic',     hard: true,         col: [222, 200, 150] },
+      { id: 11, key: 'gold',     name: 'Golden Pixel', hp: 200, val: 0, col: [255, 206, 46] },
+    ],
+    T: { AIR: 0, GRASS: 1, SOIL: 2, CLAY: 3, STONE: 4, BASALT: 5, OBSIDIAN: 6,
+         COPPER: 7, SILVER: 8, AMETHYST: 9, RELIC: 10, GOLD: 11 },
+
+    // Ball types. speed in world px/s, dmg per hit, cost grows by GROWTH per owned.
+    // unlock = bits earned in the current world before the type can be bought.
+    BALLS: [
+      { key: 'pebble', name: 'Pebble', color: '#e9e4d6', dmg: 1,  speed: 46,  cost: 15,     unlock: 0,
+        desc: 'Bounces around and chips whatever it hits.' },
+      { key: 'lancer', name: 'Lancer', color: '#4aa8ff', dmg: 3,  speed: 120, cost: 400,    unlock: 300,
+        desc: 'Only travels in straight lines. Cuts long, clean tunnels.',
+        special: { key: 'pierce', name: 'Pierce', desc: 'Keeps going through 1 more broken pixel', max: 10, base: 0, step: 1 } },
+      { key: 'bomb',   name: 'Bomb',   color: '#ff5a48', dmg: 2,  speed: 50,  cost: 4000,   unlock: 3500,
+        desc: 'Blows out a circle of pixels on impact, then recharges.',
+        special: { key: 'radius', name: 'Blast radius', desc: '+1 px blast radius', max: 10, base: 4, step: 1 } },
+      { key: 'venom',  name: 'Venom',  color: '#6fe05a', dmg: 2,  speed: 52,  cost: 40000,  unlock: 35000,
+        desc: 'Poisons what it touches. Poison eats outward through the rock.',
+        special: { key: 'spread', name: 'Virulence', desc: 'Poison spreads further', max: 8, base: 0, step: 1 } },
+      { key: 'midas',  name: 'Midas',  color: '#ff9b2e', dmg: 4,  speed: 60,  cost: 400000, unlock: 300000,
+        desc: 'Every pixel it breaks pays out several times over.',
+        special: { key: 'mult', name: 'Alchemy', desc: '+1× payout', max: 12, base: 4, step: 1 } },
+      { key: 'drill',  name: 'Drill',  color: '#b46cff', dmg: 30, speed: 40,  cost: 4e6,    unlock: 3e6,
+        desc: 'Bores straight through anything it can break in one hit.' },
+      { key: 'seeker', name: 'Seeker', color: '#37e2d6', dmg: 60, speed: 70,  cost: 5e7,    unlock: 4e7,
+        desc: 'Homes in on the Golden Pixel, boring through soft rock on the way.',
+        special: { key: 'steer', name: 'Instinct', desc: 'Steers harder toward the gold', max: 8, base: 1, step: 1 } },
+    ],
+    // Ball n of a type costs cost * (1 + n / COST_K)^COST_EXP, so swarms of thousands stay reachable.
+    COST_K: 8,
+    COST_EXP: 2,
+
+    // Per-ball-type upgrades: cost = ball.cost * mul * grow^level
+    BALL_UP: {
+      dmg: { name: 'Damage', mul: 6, grow: 2.6, max: 25, desc: '+60% damage' },
+      spd: { name: 'Speed',  mul: 4, grow: 2.2, max: 12, desc: '+15% speed' },
+      sp:  { mul: 10, grow: 3.0 },
+    },
+
+    // Global upgrades
+    UP: [
+      { key: 'tap',   name: 'Pickaxe',   desc: 'Tapping rock hits harder and wider.', cost: 40,    grow: 2.4, max: 40 },
+      { key: 'value', name: 'Appraisal', desc: '+25% bits from every pixel.',         cost: 600,   grow: 2.9, max: 60 },
+      { key: 'radar', name: 'Gold Radar', desc: ['Shows how warm you are.', 'Adds an arrow toward the gold.', 'Shows the exact distance.'],
+        costs: [60000, 3e6, 2e8], max: 3 },
+    ],
+
+    POISON_TICK: 0.25,      // s between poison damage passes
+    POISON_CAP: 60000,      // live poisoned cells
+    BOMB_COOLDOWN: 1.0,
+    OFFLINE_RATE: 0.5,      // share of live income paid while away
+    OFFLINE_CAP: 8 * 3600,  // s
+    STAR_BONUS: 0.5,        // +50% value per Golden Pixel found
+
+    // Indestructible relics, stamped into the world at SCALE px per character.
+    RELICS: [
+      { name: 'Bone', scale: 7, art: [
+        '.XX.......XX.',
+        'XXXX.....XXXX',
+        'XXXXXXXXXXXXX',
+        '.XXXXXXXXXXX.',
+        'XXXXXXXXXXXXX',
+        'XXXX.....XXXX',
+        '.XX.......XX.',
+      ] },
+      { name: 'Paw', scale: 8, art: [
+        '..XX....XX..',
+        '.XXXX..XXXX.',
+        '.XXXX..XXXX.',
+        '..XX....XX..',
+        '............',
+        'XX..XXXX..XX',
+        'XX.XXXXXX.XX',
+        '..XXXXXXXX..',
+        '.XXXXXXXXXX.',
+        '.XXXXXXXXXX.',
+        '..XXXXXXXX..',
+      ] },
+      { name: 'Skull', scale: 8, art: [
+        '...XXXXXX...',
+        '.XXXXXXXXXX.',
+        'XXXXXXXXXXXX',
+        'XX...XX...XX',
+        'XX...XX...XX',
+        'XXXXXXXXXXXX',
+        '.XXXXX.XXXX.',
+        '..XXXXXXXX..',
+        '..X.X.X.X...',
+      ] },
+      { name: 'Key', scale: 7, art: [
+        '.XXX..........',
+        'X...X.........',
+        'X...XXXXXXXXXX',
+        'X...X....X.X.X',
+        '.XXX.....X.X..',
+      ] },
+      { name: 'Anchor', scale: 8, art: [
+        '....XXX....',
+        '....X.X....',
+        '....XXX....',
+        '..XXXXXXX..',
+        '.....X.....',
+        '.....X.....',
+        'X....X....X',
+        'XX...X...XX',
+        '.XX..X..XX.',
+        '..XXXXXXX..',
+      ] },
+      { name: 'Gear', scale: 7, art: [
+        '....XX....',
+        '.X.XXXX.X.',
+        '..XXXXXX..',
+        'XXXX..XXXX',
+        'XXX....XXX',
+        'XXX....XXX',
+        'XXXX..XXXX',
+        '..XXXXXX..',
+        '.X.XXXX.X.',
+        '....XX....',
+      ] },
+      { name: 'Arch', scale: 9, art: [
+        '.XXXXXXXXX.',
+        'XXXXXXXXXXX',
+        'XXX.....XXX',
+        'XX.......XX',
+        'XX.......XX',
+        'XX.......XX',
+        'XX.......XX',
+      ] },
+      { name: 'Spiral', scale: 6, art: [
+        'XXXXXXXXXX',
+        'X........X',
+        'X.XXXXXX.X',
+        'X.X....X.X',
+        'X.X.XX.X.X',
+        'X.X..X.X.X',
+        'X.XXXX.X.X',
+        'X......X.X',
+        'XXXXXXXX.X',
+      ] },
+    ],
+    RELIC_COUNT: 34,
+  };
+})();
+
+</script>
+<script>
+// Pixel Quarry: world generation. Same seed always gives the same world, which
+// is what lets a save store only which pixels were mined.
+(function () {
+  const root = typeof window !== 'undefined' ? window : globalThis;
+  const PQ = root.PQ;
+  const D = PQ.DATA, T = D.T;
+  const W = D.W, H = D.H, N = D.N;
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  function hash2(x, y, s) {
+    let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 1442695041) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  }
+
+  function smooth(t) { return t * t * (3 - 2 * t); }
+
+  function vnoise(x, y, s) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const u = smooth(x - xi), v = smooth(y - yi);
+    const a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s);
+    const c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  }
+
+  function vnoise1(x, s) {
+    const xi = Math.floor(x), u = smooth(x - xi);
+    const a = hash2(xi, 0, s), b = hash2(xi + 1, 0, s);
+    return a + (b - a) * u;
+  }
+
+  // Low-frequency noise sampled every `step` px along a row and lerped between.
+  function rowNoise(buf, y, fx, fy, s, step) {
+    let prev = vnoise(0, y * fy, s);
+    for (let x0 = 0; x0 < W; x0 += step) {
+      const next = vnoise((x0 + step) * fx, y * fy, s);
+      const end = Math.min(W, x0 + step);
+      for (let x = x0; x < end; x++) buf[x] = prev + (next - prev) * ((x - x0) / step);
+      prev = next;
+    }
+  }
+
+  function create(seed) {
+    return {
+      W, H, N, seed: seed >>> 0,
+      cells: new Uint8Array(N),
+      dmg: new Uint8Array(N),
+      mined: new Uint8Array((N + 7) >> 3),
+      surface: new Int16Array(W),
+      relics: [],
+      gold: { x: 0, y: 0 },
+      solidTotal: 0,
+      minedCount: 0,
+    };
+  }
+
+  function prepare(w) {
+    const s = w.seed;
+    for (let x = 0; x < W; x++) {
+      w.surface[x] = Math.round(D.SURFACE
+        + (vnoise1(x / 260, s + 1) - 0.5) * 110
+        + (vnoise1(x / 48, s + 2) - 0.5) * 26
+        + (vnoise1(x / 9, s + 3) - 0.5) * 4);
+    }
+  }
+
+  const warpBuf = new Float32Array(W), caveA = new Float32Array(W), caveB = new Float32Array(W);
+
+  function genRows(w, y0, y1) {
+    const s = w.seed, cells = w.cells, surface = w.surface;
+    for (let y = y0; y < y1; y++) {
+      rowNoise(warpBuf, y, 1 / 140, 1 / 140, s + 4, 16);
+      rowNoise(caveA, y, 1 / 90, 1 / 55, s + 5, 8);
+      rowNoise(caveB, y, 1 / 26, 1 / 26, s + 6, 4);
+      const caveThr = 0.70 - 0.05 * (y / H);
+      const row = y * W;
+      let blk = 1;
+      for (let x = 0; x < W; x++) {
+        if ((x & 15) === 0) blk = hash2(x >> 4, y >> 4, s + 8);
+        const sf = surface[x];
+        let t;
+        if (y < sf) t = T.AIR;
+        else {
+          const d = y - sf;
+          if (d < 3) t = T.GRASS;
+          else {
+            const f = (y + (warpBuf[x] - 0.5) * 170) / H;
+            t = f < 0.17 ? T.SOIL : f < 0.33 ? T.CLAY : f < 0.56 ? T.STONE : f < 0.80 ? T.BASALT : T.OBSIDIAN;
+            if (d > 26) {
+              if (caveA[x] * 0.62 + caveB[x] * 0.38 > caveThr) t = T.AIR;
+              else if (blk < 0.12 && vnoise(x / 5, y / 5, s + 9) > 0.64) {
+                if (f < 0.30) t = T.COPPER;
+                else if (f < 0.60) t = blk < 0.04 ? T.SILVER : T.COPPER;
+                else t = blk < 0.015 ? T.AMETHYST : blk < 0.06 ? T.SILVER : T.COPPER;
+              }
+            }
+          }
+        }
+        cells[row + x] = t;
+      }
+    }
+  }
+
+  function overlaps(list, x0, y0, x1, y1, pad) {
+    for (const r of list) {
+      if (x0 < r.x1 + pad && x1 > r.x0 - pad && y0 < r.y1 + pad && y1 > r.y0 - pad) return true;
+    }
+    return false;
+  }
+
+  // Relics, the Golden Pixel and the solid-pixel count. Run after every row exists.
+  function finalize(w) {
+    const rng = mulberry32(w.seed ^ 0x9e3779b9);
+    const cells = w.cells;
+    w.relics = [];
+    for (let i = 0; i < D.RELIC_COUNT; i++) {
+      const def = D.RELICS[Math.floor(rng() * D.RELICS.length)];
+      const rw = Math.max(...def.art.map(r => r.length)) * def.scale, rh = def.art.length * def.scale;
+      for (let tries = 0; tries < 30; tries++) {
+        const x0 = 30 + Math.floor(rng() * (W - 60 - rw));
+        const y0 = D.SURFACE + 160 + Math.floor(rng() * (H - D.SURFACE - 220 - rh));
+        if (overlaps(w.relics, x0, y0, x0 + rw, y0 + rh, 40)) continue;
+        def.art.forEach((line, ry) => {
+          for (let rx = 0; rx < line.length; rx++) {
+            if (line[rx] !== 'X') continue;
+            for (let py = 0; py < def.scale; py++) {
+              const row = (y0 + ry * def.scale + py) * W + x0 + rx * def.scale;
+              cells.fill(T.RELIC, row, row + def.scale);
+            }
+          }
+        });
+        w.relics.push({ name: def.name, x0, y0, x1: x0 + rw, y1: y0 + rh });
+        break;
+      }
+    }
+
+    // The Golden Pixel sits deep, fully buried, away from relics.
+    for (let tries = 0; tries < 5000; tries++) {
+      const x = 60 + Math.floor(rng() * (W - 120));
+      const y = Math.floor(H * 0.62 + rng() * (H * 0.38 - 50));
+      if (overlaps(w.relics, x, y, x + 1, y + 1, 12)) continue;
+      let buried = true;
+      for (let dy = -2; dy <= 2 && buried; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const t = cells[(y + dy) * W + x + dx];
+          if (t === T.AIR || t === T.RELIC) { buried = false; break; }
+        }
+      }
+      if (!buried) continue;
+      cells[y * W + x] = T.GOLD;
+      w.gold = { x, y };
+      break;
+    }
+
+    let solid = 0;
+    for (let i = 0; i < N; i++) { const t = cells[i]; if (t !== T.AIR && t !== T.RELIC) solid++; }
+    w.solidTotal = solid;
+  }
+
+  function generate(w) {
+    prepare(w);
+    genRows(w, 0, H);
+    finalize(w);
+    return w;
+  }
+
+  // Re-applies a save's mined bitset to a freshly generated world.
+  function applyMined(w, bits) {
+    const cells = w.cells;
+    let count = 0;
+    const len = Math.min(bits.length, w.mined.length);
+    for (let b = 0; b < len; b++) {
+      const v = bits[b];
+      if (!v) continue;
+      for (let k = 0; k < 8; k++) {
+        if ((v >> k) & 1) {
+          const i = (b << 3) + k;
+          if (i < N && cells[i] !== T.RELIC) { cells[i] = T.AIR; count++; }
+        }
+      }
+      w.mined[b] = v;
+    }
+    w.minedCount = count;
+  }
+
+  PQ.World = { create, prepare, genRows, finalize, generate, applyMined, mulberry32, hash2, vnoise };
+})();
+
+</script>
+<script>
+// Pixel Quarry: the simulation. Pure logic, no DOM, so it runs under Node for tests.
+(function () {
+  const root = typeof window !== 'undefined' ? window : globalThis;
+  const PQ = root.PQ;
+  const D = PQ.DATA, T = D.T, MAT = D.MAT, BALLS = D.BALLS;
+  const W = D.W, H = D.H, MASK = D.TYPE_MASK, POI = D.POISON;
+  const TS = Math.log2(D.TILE);
+  const B = {};
+  BALLS.forEach((b, i) => { B[b.key] = i; });
+
+  function newState(seed) {
+    const owned = {}, up = {};
+    BALLS.forEach(b => { owned[b.key] = 0; up[b.key] = { dmg: 0, spd: 0, sp: 0 }; });
+    owned.pebble = 1;                       // one free ball to start
+    return {
+      v: 1, seed: seed >>> 0,
+      bits: 0, earned: 0, lifetime: 0, stars: 0,
+      owned, up, global: { tap: 0, value: 0, radar: 0 },
+      drop: { x: W / 2, y: 110 },
+      found: false, foundTime: 0, goldReward: 0,
+      playTime: 0, broken: 0, rate: 0,
+      savedAt: Date.now(),
+      settings: { particles: true },
+      buyMode: 1,
+    };
+  }
+
+  function Sim(world, state) {
+    this.w = world;
+    this.s = state;
+    const M = D.MAX_BALLS;
+    this.n = 0;
+    this.bx = new Float32Array(M); this.by = new Float32Array(M);
+    this.vx = new Float32Array(M); this.vy = new Float32Array(M);
+    this.bt = new Uint8Array(M);
+    this.cd = new Float32Array(M);
+    this.pl = new Uint8Array(M);
+    this.tilesX = Math.ceil(W / D.TILE);
+    this.tilesY = Math.ceil(H / D.TILE);
+    this.tileDirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
+    this.ovDirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
+    this.poison = new Int32Array(D.POISON_CAP);
+    this.poisonGen = new Uint8Array(D.POISON_CAP);
+    this.pn = 0;
+    this.poisonT = 0;
+    this.fxI = new Int32Array(256); this.fxT = new Uint8Array(256); this.fxn = 0;
+    this.events = [];
+    this.hist = [state.earned];
+    this.rateT = 0;
+    this.rng = PQ.World.mulberry32((state.seed ^ 0x5bd1e995) >>> 0);
+    this.derive();
+  }
+
+  const P = Sim.prototype;
+
+  // Recompute every number that depends on upgrades. Call after any purchase.
+  P.derive = function () {
+    const s = this.s;
+    const sp = key => {
+      const b = BALLS[B[key]];
+      return b.special.base + b.special.step * s.up[key].sp;
+    };
+    this.valueMult = (1 + 0.25 * s.global.value) * (1 + D.STAR_BONUS * s.stars);
+    this.tDmg = BALLS.map(b => Math.round(b.dmg * Math.pow(1.6, s.up[b.key].dmg)));
+    this.tSpd = BALLS.map(b => b.speed * (1 + 0.15 * s.up[b.key].spd));
+    this.pierceMax = BALLS.map(b => b.key === 'lancer' ? sp('lancer') : (b.key === 'drill' || b.key === 'seeker') ? 255 : 0);
+    this.bombR = sp('bomb');
+    this.venomGen = 4 + 2 * s.up.venom.sp;
+    this.venomP = 0.42 + 0.03 * s.up.venom.sp;
+    this.midas = sp('midas');
+    this.steer = sp('seeker');
+    this.tapDmg = Math.round(3 * Math.pow(1.6, s.global.tap));
+    this.tapR = Math.min(10, 2 + Math.floor(s.global.tap / 3));
+  };
+
+  P.dirty = function (x, y) {
+    const k = (y >> TS) * this.tilesX + (x >> TS);
+    this.tileDirty[k] = 1;
+    this.ovDirty[k] = 1;
+  };
+
+  P.spawn = function (t, x, y) {
+    if (this.n >= D.MAX_BALLS) return false;
+    const k = this.n++;
+    this.bx[k] = x; this.by[k] = y;
+    if (t === B.lancer) {
+      const d = Math.floor(this.rng() * 4);
+      this.vx[k] = [1, -1, 0, 0][d]; this.vy[k] = [0, 0, 1, -1][d];
+    } else if (t === B.seeker && !this.s.found) {
+      const g = this.w.gold, a = Math.atan2(g.y + 0.5 - y, g.x + 0.5 - x) + (this.rng() - 0.5) * 1.8 / this.steer;
+      this.vx[k] = Math.cos(a); this.vy[k] = Math.sin(a);
+    } else {
+      const a = this.rng() * Math.PI * 2;
+      this.vx[k] = Math.cos(a); this.vy[k] = Math.sin(a);
+    }
+    this.bt[k] = t;
+    this.cd[k] = 0;
+    this.pl[k] = this.pierceMax[t];
+    return true;
+  };
+
+  // Damage one cell. Returns 1 broken, 0 damaged, 2 already empty, -1 unbreakable.
+  P.hit = function (x, y, amount, mult) {
+    const w = this.w, i = y * W + x, t = w.cells[i] & MASK;
+    if (t === 0) return 2;
+    const m = MAT[t];
+    if (m.hard) return -1;
+    const before = w.dmg[i], d = before + amount;
+    if (d >= m.hp) { this.destroy(i, x, y, t, mult); return 1; }
+    w.dmg[i] = d;
+    if (((before * 4 / m.hp) | 0) !== ((d * 4 / m.hp) | 0)) this.dirty(x, y);
+    return 0;
+  };
+
+  P.destroy = function (i, x, y, t, mult) {
+    const w = this.w, s = this.s;
+    w.cells[i] = 0;
+    w.dmg[i] = 0;
+    w.mined[i >> 3] |= 1 << (i & 7);
+    w.minedCount++;
+    const v = MAT[t].val * mult * this.valueMult;
+    s.bits += v; s.earned += v; s.lifetime += v;
+    s.broken++;
+    this.dirty(x, y);
+    if (this.fxn < 256) { this.fxI[this.fxn] = i; this.fxT[this.fxn] = t; this.fxn++; }
+    const g = w.gold;
+    if (t === T.GOLD) {
+      s.found = true;
+      s.foundTime = s.playTime;
+      s.goldReward = Math.max(5e5, s.earned * 0.5);
+      s.bits += s.goldReward;
+      this.events.push({ type: 'gold' });
+    } else if (Math.abs(x - g.x) + Math.abs(y - g.y) === 1) {
+      this.dirty(g.x, g.y);                 // the gold may now be exposed
+    }
+  };
+
+  P.explode = function (cx, cy, R, amount) {
+    const cells = this.w.cells;
+    for (let dy = -R; dy <= R; dy++) {
+      const y = cy + dy;
+      if (y < 0 || y >= H) continue;
+      const span = Math.floor(Math.sqrt(R * R - dy * dy));
+      for (let dx = -span; dx <= span; dx++) {
+        const x = cx + dx;
+        if (x < 0 || x >= W || !(cells[y * W + x] & MASK)) continue;
+        this.hit(x, y, amount, 1);
+      }
+    }
+  };
+
+  P.poisonCell = function (x, y, gen) {
+    const cells = this.w.cells, i = y * W + x, c = cells[i];
+    if ((c & POI) || this.pn >= D.POISON_CAP) return;
+    const t = c & MASK;
+    if (!t || MAT[t].hard) return;
+    cells[i] = c | POI;
+    this.poison[this.pn] = i;
+    this.poisonGen[this.pn] = gen;
+    this.pn++;
+    this.dirty(x, y);
+  };
+
+  P.tickPoison = function () {
+    const cells = this.w.cells, P_ = this.poison, G = this.poisonGen;
+    const amt = Math.max(1, this.tDmg[B.venom]);
+    const n0 = this.pn;
+    let j = 0;
+    for (let q = 0; q < n0; q++) {
+      const i = P_[q], g = G[q];
+      if (!(cells[i] & POI)) continue;      // broken by something else
+      const x = i % W, y = (i / W) | 0;
+      if (this.hit(x, y, amt, 1) === 1) {
+        if (g < this.venomGen) {
+          if (x > 0 && this.rng() < this.venomP) this.poisonCell(x - 1, y, g + 1);
+          if (x < W - 1 && this.rng() < this.venomP) this.poisonCell(x + 1, y, g + 1);
+          if (y > 0 && this.rng() < this.venomP) this.poisonCell(x, y - 1, g + 1);
+          if (y < H - 1 && this.rng() < this.venomP) this.poisonCell(x, y + 1, g + 1);
+        }
+      } else {
+        P_[j] = i; G[j] = g; j++;
+      }
+    }
+    for (let q = n0; q < this.pn; q++) { P_[j] = P_[q]; G[j] = G[q]; j++; }
+    this.pn = j;
+  };
+
+  P.ballHit = function (k, t, cx, cy) {
+    if (t === B.bomb && this.cd[k] <= 0) {
+      this.cd[k] = D.BOMB_COOLDOWN;
+      this.explode(cx, cy, this.bombR, this.tDmg[t] * 2);
+      return (this.w.cells[cy * W + cx] & MASK) === T.RELIC ? -1 : 0;
+    }
+    const r = this.hit(cx, cy, this.tDmg[t], t === B.midas ? this.midas : 1);
+    if (t === B.venom && r === 0) this.poisonCell(cx, cy, 0);
+    return r;
+  };
+
+  P.moveBalls = function (dt) {
+    const cells = this.w.cells, n = this.n, rng = this.rng;
+    const bx = this.bx, by = this.by, VX = this.vx, VY = this.vy, bt = this.bt, cd = this.cd, pl = this.pl;
+    const seekGold = !this.s.found;
+    const gx = this.w.gold.x + 0.5, gy = this.w.gold.y + 0.5;
+    for (let k = 0; k < n; k++) {
+      const t = bt[k];
+      let x = bx[k], y = by[k], vx = VX[k], vy = VY[k];
+      if (cd[k] > 0) cd[k] -= dt;
+      let dist = this.tSpd[t] * dt, hits = 0;
+      while (dist > 0 && hits < 3) {
+        const st = dist < 0.9 ? dist : 0.9;
+        dist -= st;
+        let nx = x + vx * st, ny = y + vy * st;
+        if (nx < 0) { nx = -nx; vx = -vx; } else if (nx >= W) { nx = 2 * W - nx - 0.01; vx = -vx; }
+        if (ny < 0) { ny = -ny; vy = -vy; } else if (ny >= H) { ny = 2 * H - ny - 0.01; vy = -vy; }
+        const cx = nx | 0, cy = ny | 0;
+        if (!(cells[cy * W + cx] & MASK)) { x = nx; y = ny; continue; }
+        hits++;
+        const r = this.ballHit(k, t, cx, cy);
+        if (r === 1 && pl[k] > 0) { pl[k]--; x = nx; y = ny; continue; }
+        const ox = x | 0, oy = y | 0;
+        if (cx !== ox && cy !== oy) {
+          const sx = (cells[oy * W + cx] & MASK) !== 0, sy = (cells[cy * W + ox] & MASK) !== 0;
+          if (sx && !sy) vx = -vx;
+          else if (sy && !sx) vy = -vy;
+          else { vx = -vx; vy = -vy; }
+        } else if (cx !== ox) vx = -vx;
+        else if (cy !== oy) vy = -vy;
+        else {
+          // Buried inside a cell. Dig out, unless it is a relic: then go home.
+          if (r === -1) { x = this.s.drop.x; y = this.s.drop.y; }
+          vx = -vx; vy = -vy;
+        }
+        pl[k] = this.pierceMax[t];
+        if (t === B.lancer) {
+          if (rng() < 0.2) { const tmp = vx; vx = vy; vy = -tmp; }
+        } else if (t === B.seeker && seekGold) {
+          // Re-aim at the gold after every bounce. Instinct narrows the spread.
+          const a = Math.atan2(gy - y, gx - x) + (rng() - 0.5) * 1.8 / this.steer;
+          vx = Math.cos(a); vy = Math.sin(a);
+        } else {
+          const a = (rng() - 0.5) * 0.3, c = Math.cos(a), sn = Math.sin(a);
+          const nvx = vx * c - vy * sn;
+          vy = vx * sn + vy * c; vx = nvx;
+        }
+      }
+      bx[k] = x; by[k] = y; VX[k] = vx; VY[k] = vy;
+    }
+  };
+
+  P.step = function (dt) {
+    const s = this.s;
+    s.playTime += dt;
+    this.moveBalls(dt);
+    this.poisonT += dt;
+    while (this.poisonT >= D.POISON_TICK) { this.poisonT -= D.POISON_TICK; this.tickPoison(); }
+    this.rateT += dt;
+    if (this.rateT >= 1) {
+      this.rateT -= 1;
+      this.hist.push(s.earned);
+      if (this.hist.length > 11) this.hist.shift();
+      s.rate = this.hist.length > 1 ? (this.hist[this.hist.length - 1] - this.hist[0]) / (this.hist.length - 1) : 0;
+    }
+  };
+
+  // A tap on rock digs; a tap on open space moves the drop point.
+  P.tap = function (wx, wy) {
+    const x = Math.floor(wx), y = Math.floor(wy);
+    if (x < 0 || y < 0 || x >= W || y >= H) return null;
+    const cells = this.w.cells, t = cells[y * W + x] & MASK;
+    if (t === 0) { this.s.drop = { x: x + 0.5, y: y + 0.5 }; return 'drop'; }
+    if (t === T.RELIC) return 'relic';
+    const R = this.tapR;
+    for (let dy = -R; dy <= R; dy++) {
+      const yy = y + dy;
+      if (yy < 0 || yy >= H) continue;
+      const span = Math.floor(Math.sqrt(R * R - dy * dy));
+      for (let dx = -span; dx <= span; dx++) {
+        const xx = x + dx;
+        if (xx < 0 || xx >= W || !(cells[yy * W + xx] & MASK)) continue;
+        this.hit(xx, yy, this.tapDmg, 1);
+      }
+    }
+    return 'dig';
+  };
+
+  // ---- shop ----
+  P.unlocked = function (t) {
+    const b = BALLS[t];
+    return this.s.earned >= b.unlock || this.s.owned[b.key] > 0;
+  };
+  const unitCost = (b, n) => b.cost * Math.pow(1 + n / D.COST_K, D.COST_EXP);
+  P.ballCost = function (t, count) {
+    const b = BALLS[t], o = this.s.owned[b.key];
+    let sum = 0;
+    for (let i = 0; i < count; i++) sum += unitCost(b, o + i);
+    return sum;
+  };
+  P.maxBuy = function (t) {
+    const b = BALLS[t], room = D.MAX_BALLS - this.n;
+    let o = this.s.owned[b.key], left = this.s.bits, c = 0;
+    while (c < room) {
+      const u = unitCost(b, o);
+      if (u > left) break;
+      left -= u; o++; c++;
+    }
+    return c;
+  };
+  P.buyBall = function (t, count) {
+    if (!this.unlocked(t)) return 0;
+    count = Math.min(count, D.MAX_BALLS - this.n);
+    if (count <= 0) return 0;
+    const cost = this.ballCost(t, count);
+    if (cost > this.s.bits) return 0;
+    this.s.bits -= cost;
+    this.s.owned[BALLS[t].key] += count;
+    for (let i = 0; i < count; i++) this.spawn(t, this.s.drop.x, this.s.drop.y);
+    return count;
+  };
+
+  P.ballUpMax = function (t, kind) {
+    const b = BALLS[t];
+    return kind === 'sp' ? (b.special ? b.special.max : 0) : D.BALL_UP[kind].max;
+  };
+  P.ballUpCost = function (t, kind) {
+    const b = BALLS[t], U = D.BALL_UP[kind];
+    return b.cost * U.mul * Math.pow(U.grow, this.s.up[b.key][kind]);
+  };
+  P.buyBallUp = function (t, kind) {
+    const b = BALLS[t], lv = this.s.up[b.key];
+    if (!this.s.owned[b.key] || lv[kind] >= this.ballUpMax(t, kind)) return false;
+    const cost = this.ballUpCost(t, kind);
+    if (cost > this.s.bits) return false;
+    this.s.bits -= cost;
+    lv[kind]++;
+    this.derive();
+    return true;
+  };
+
+  P.upDef = key => D.UP.find(u => u.key === key);
+  P.upCost = function (key) {
+    const u = this.upDef(key), lvl = this.s.global[key];
+    if (lvl >= u.max) return Infinity;
+    return u.costs ? u.costs[lvl] : u.cost * Math.pow(u.grow, lvl);
+  };
+  P.buyUp = function (key) {
+    const cost = this.upCost(key);
+    if (cost > this.s.bits) return false;
+    this.s.bits -= cost;
+    this.s.global[key]++;
+    this.derive();
+    return true;
+  };
+
+  // Bits paid for time away, at a share of the last measured income.
+  P.offline = function (seconds) {
+    const sec = Math.min(Math.max(0, seconds), D.OFFLINE_CAP);
+    const gain = sec * (this.s.rate || 0) * D.OFFLINE_RATE;
+    this.s.bits += gain; this.s.earned += gain; this.s.lifetime += gain;
+    return { seconds: sec, gain };
+  };
+
+  // ---- persistence of balls ----
+  P.exportBalls = function () {
+    const out = new Float32Array(this.n * 5);
+    for (let k = 0; k < this.n; k++) {
+      out.set([this.bx[k], this.by[k], this.vx[k], this.vy[k], this.bt[k]], k * 5);
+    }
+    return out;
+  };
+  P.importBalls = function (arr) {
+    this.n = 0;
+    const cells = this.w.cells;
+    for (let o = 0; o + 4 < arr.length && this.n < D.MAX_BALLS; o += 5) {
+      const t = arr[o + 4] | 0;
+      if (t < 0 || t >= BALLS.length) continue;
+      let x = arr[o], y = arr[o + 1];
+      if (!(x >= 0 && x < W && y >= 0 && y < H) || (cells[(y | 0) * W + (x | 0)] & MASK) === T.RELIC) {
+        x = this.s.drop.x; y = this.s.drop.y;
+      }
+      const k = this.n;
+      this.spawn(t, x, y);
+      const vx = arr[o + 2], vy = arr[o + 3], l = Math.hypot(vx, vy);
+      if (l > 0.5) { this.vx[k] = vx / l; this.vy[k] = vy / l; }
+    }
+  };
+  // Balls the player owns but that are not in the world (first start, lost save).
+  P.spawnMissing = function () {
+    const have = BALLS.map(() => 0);
+    for (let k = 0; k < this.n; k++) have[this.bt[k]]++;
+    BALLS.forEach((b, t) => {
+      for (let i = have[t]; i < this.s.owned[b.key]; i++) this.spawn(t, this.s.drop.x, this.s.drop.y);
+    });
+  };
+
+  // State for the next world after finding the Golden Pixel.
+  function prestige(s, seed) {
+    const next = newState(seed);
+    next.stars = s.stars + (s.found ? 1 : 0);
+    next.lifetime = s.lifetime;
+    next.settings = s.settings;
+    next.buyMode = s.buyMode;
+    return next;
+  }
+
+  PQ.Sim = Sim;
+  PQ.newState = newState;
+  PQ.prestige = prestige;
+  PQ.BALL = B;
+})();
+
+</script>
+<script>
+// Pixel Quarry: canvas renderer. The world is drawn from 128 px tiles that are
+// only re-rendered when the sim marks them dirty, over a half-resolution
+// overview image that covers the far zoom levels.
+(function () {
+  const root = typeof window !== 'undefined' ? window : globalThis;
+  const PQ = root.PQ;
+  const D = PQ.DATA, T = D.T, MAT = D.MAT;
+  const W = D.W, H = D.H, TL = D.TILE, OV = D.OV, MASK = D.TYPE_MASK;
+  const CACHE_MAX = 180;
+  const OV_ZOOM = 0.5;                       // below this zoom, draw only the overview
+
+  const pack = (r, g, b) => ((255 << 24) | (Math.min(255, Math.max(0, b | 0)) << 16) | (Math.min(255, Math.max(0, g | 0)) << 8) | Math.min(255, Math.max(0, r | 0))) >>> 0;
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  function buildPalette() {
+    // index = type << 5 | poisoned << 4 | crack stage << 2 | shade
+    const pal = new Uint32Array(16 * 32);
+    const shade = [0.84, 0.93, 1.0, 1.09], crack = [1, 0.84, 0.7, 0.56];
+    MAT.forEach(m => {
+      if (!m.col) return;
+      for (let p = 0; p < 2; p++) for (let st = 0; st < 4; st++) for (let sh = 0; sh < 4; sh++) {
+        let [r, g, b] = m.col.map(c => c * shade[sh] * crack[st]);
+        if (p) { r = lerp(r, 70, 0.5); g = lerp(g, 230, 0.5); b = lerp(b, 80, 0.5); }
+        pal[(m.id << 5) | (p << 4) | (st << 2) | sh] = pack(r, g, b);
+      }
+    });
+    return pal;
+  }
+
+  function buildStageLUT() {
+    const lut = new Uint8Array(16 * 256);
+    MAT.forEach(m => {
+      if (!m.hp) return;
+      for (let d = 0; d < 256; d++) lut[(m.id << 8) | d] = Math.min(3, (d * 4 / m.hp) | 0);
+    });
+    return lut;
+  }
+
+  function buildShadeTex(seed) {
+    const tex = new Uint8Array(256 * 256);
+    for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+      const h = PQ.World.hash2(x, y, seed + 99);
+      tex[(y << 8) | x] = h < 0.15 ? 0 : h < 0.55 ? 1 : h < 0.9 ? 2 : 3;
+    }
+    return tex;
+  }
+
+  function Renderer(canvas, world, sim) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d', { alpha: false });
+    this.w = world;
+    this.sim = sim;
+    this.pal = buildPalette();
+    this.stage = buildStageLUT();
+    this.shade = buildShadeTex(world.seed);
+    this.goldCol = [pack(255, 214, 64), pack(255, 236, 140), pack(255, 196, 30), pack(255, 248, 200)];
+
+    // Air: sky above the local ground line, cave below it, both shaded by depth.
+    this.sky = new Uint32Array(H);
+    this.cave = new Uint32Array(H);
+    for (let y = 0; y < H; y++) {
+      const t = Math.min(1, y / (D.SURFACE + 60));
+      this.sky[y] = pack(lerp(22, 74, t), lerp(26, 92, t), lerp(52, 128, t));
+      const d = y / H;
+      this.cave[y] = pack(lerp(26, 14, d), lerp(20, 10, d), lerp(26, 22, d));
+    }
+
+    this.cache = new Map();
+    this.pool = [];
+    this.tileImg = new ImageData(TL, TL);
+    this.tileBuf = new Uint32Array(this.tileImg.data.buffer);
+
+    this.ov = document.createElement('canvas');
+    this.ov.width = Math.ceil(W / OV); this.ov.height = Math.ceil(H / OV);
+    this.ovCtx = this.ov.getContext('2d');
+    this.ovImg = new ImageData(TL / OV, TL / OV);
+    this.ovBuf = new Uint32Array(this.ovImg.data.buffer);
+
+    this.cam = { x: W / 2, y: D.SURFACE, z: 3 };
+    this.cssW = 1; this.cssH = 1; this.dpr = 1;
+    this.parts = [];
+    this.time = 0;
+    this.particles = true;
+    this.radar = 0;
+    this.safeTop = 0;
+    this.safeBottom = 1;
+  }
+
+  const R = Renderer.prototype;
+
+  R.resize = function () {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const r = this.canvas.getBoundingClientRect();
+    this.cssW = Math.max(1, r.width); this.cssH = Math.max(1, r.height); this.dpr = dpr;
+    this.canvas.width = Math.round(this.cssW * dpr);
+    this.canvas.height = Math.round(this.cssH * dpr);
+    this.clampCam();
+  };
+
+  R.minZoom = function () { return Math.min(this.cssW / W, this.cssH / H) * 0.92; };
+
+  R.clampCam = function () {
+    const c = this.cam;
+    c.z = Math.min(40, Math.max(this.minZoom(), c.z));
+    c.x = Math.min(W, Math.max(0, c.x));
+    c.y = Math.min(H, Math.max(0, c.y));
+  };
+
+  R.toWorld = function (sx, sy) {
+    const c = this.cam;
+    return { x: c.x + (sx - this.cssW / 2) / c.z, y: c.y + (sy - this.cssH / 2) / c.z };
+  };
+
+  R.pan = function (dx, dy) {
+    this.cam.x -= dx / this.cam.z;
+    this.cam.y -= dy / this.cam.z;
+    this.clampCam();
+  };
+
+  R.zoomAt = function (factor, sx, sy) {
+    const before = this.toWorld(sx, sy);
+    this.cam.z *= factor;
+    this.clampCam();
+    const after = this.toWorld(sx, sy);
+    this.cam.x += before.x - after.x;
+    this.cam.y += before.y - after.y;
+    this.clampCam();
+  };
+
+  R.lookAt = function (x, y, z) {
+    this.cam.x = x; this.cam.y = y;
+    if (z) this.cam.z = z;
+    this.clampCam();
+  };
+
+  // The world point at the middle of the open band between the HUD and the shop sheet.
+  R.focus = function () {
+    return this.toWorld(this.cssW / 2, (this.safeTop + this.safeBottom) / 2);
+  };
+
+  // Puts a point in that open band.
+  R.lookAtDrop = function (d, z) {
+    const zz = z || this.cam.z;
+    this.lookAt(d.x, d.y + 0.2 * this.cssH / zz, zz);
+  };
+
+  // Colour of one cell, as drawn.
+  R.cellColor = function (i, x, y) {
+    const c = this.w.cells[i], t = c & MASK;
+    if (!t) return y < this.w.surface[x] ? this.sky[y] : this.cave[y];
+    if (t === T.GOLD) return this.goldColor(i, x, y);
+    const d = this.w.dmg[i];
+    const st = d ? this.stage[(t << 8) | d] : 0;
+    return this.pal[(t << 5) | ((c >> 7) << 4) | (st << 2) | this.shade[((y & 255) << 8) | (x & 255)]];
+  };
+
+  // The Golden Pixel looks like the rock around it until something touches its air.
+  R.exposed = function (x, y) {
+    const cells = this.w.cells, i = y * W + x;
+    return (x > 0 && !(cells[i - 1] & MASK)) || (x < W - 1 && !(cells[i + 1] & MASK)) ||
+           (y > 0 && !(cells[i - W] & MASK)) || (y < H - 1 && !(cells[i + W] & MASK));
+  };
+  R.goldColor = function (i, x, y) {
+    if (this.exposed(x, y)) return this.goldCol[0];
+    const left = this.w.cells[i - 1] & MASK;
+    const t = left && left !== T.GOLD && left !== T.RELIC ? left : T.BASALT;
+    return this.pal[(t << 5) | this.shade[((y & 255) << 8) | (x & 255)]];
+  };
+
+  R.renderTile = function (tx, ty, ctx) {
+    const x0 = tx * TL, y0 = ty * TL, w = Math.min(TL, W - x0), h = Math.min(TL, H - y0);
+    const cells = this.w.cells, dmg = this.w.dmg, surf = this.w.surface, buf = this.tileBuf;
+    const pal = this.pal, stage = this.stage, shade = this.shade, sky = this.sky, cave = this.cave;
+    for (let yy = 0; yy < h; yy++) {
+      const y = y0 + yy, row = y * W, o = yy * TL, srow = (y & 255) << 8;
+      const skyC = sky[y], caveC = cave[y];
+      for (let xx = 0; xx < w; xx++) {
+        const x = x0 + xx, i = row + x, c = cells[i], t = c & MASK;
+        if (!t) { buf[o + xx] = y < surf[x] ? skyC : caveC; continue; }
+        if (t === T.GOLD) { buf[o + xx] = this.goldColor(i, x, y); continue; }
+        const d = dmg[i];
+        buf[o + xx] = pal[(t << 5) | ((c >> 7) << 4) | ((d ? stage[(t << 8) | d] : 0) << 2) | shade[srow | (x & 255)]];
+      }
+    }
+    ctx.putImageData(this.tileImg, 0, 0, 0, 0, w, h);
+  };
+
+  R.renderOvBlock = function (tx, ty) {
+    const B = TL / OV, x0 = tx * TL, y0 = ty * TL;
+    const w = Math.min(B, Math.ceil((W - x0) / OV)), h = Math.min(B, Math.ceil((H - y0) / OV));
+    const buf = this.ovBuf, cells = this.w.cells, surf = this.w.surface;
+    const pal = this.pal, shade = this.shade, sky = this.sky, cave = this.cave;
+    for (let oy = 0; oy < h; oy++) {
+      for (let ox = 0; ox < w; ox++) {
+        let r = 0, g = 0, b = 0, n = 0;
+        for (let sy = 0; sy < OV; sy++) {
+          const y = y0 + oy * OV + sy;
+          if (y >= H) continue;
+          for (let sx = 0; sx < OV; sx++) {
+            const x = x0 + ox * OV + sx;
+            if (x >= W) continue;
+            const i = y * W + x, cv = cells[i], t = cv & MASK;
+            const c = !t ? (y < surf[x] ? sky[y] : cave[y])
+              : t === T.GOLD ? this.goldColor(i, x, y)
+              : pal[(t << 5) | ((cv >> 7) << 4) | shade[((y & 255) << 8) | (x & 255)]];
+            r += c & 255; g += (c >> 8) & 255; b += (c >> 16) & 255; n++;
+          }
+        }
+        buf[oy * B + ox] = pack(r / n, g / n, b / n);
+      }
+    }
+    this.ovCtx.putImageData(this.ovImg, tx * B, ty * B, 0, 0, w, h);
+  };
+
+  // Rebuild every overview block (used once while loading). Returns a promise.
+  R.buildOverview = async function (onProgress) {
+    const sim = this.sim, tx = sim.tilesX, ty = sim.tilesY;
+    for (let y = 0; y < ty; y++) {
+      for (let x = 0; x < tx; x++) { this.renderOvBlock(x, y); sim.ovDirty[y * tx + x] = 0; }
+      if (onProgress) onProgress((y + 1) / ty);
+      if (y % 4 === 3) await new Promise(r => setTimeout(r, 0));
+    }
+  };
+
+  R.getTile = function (k) {
+    let e = this.cache.get(k);
+    if (e) { this.cache.delete(k); this.cache.set(k, e); return e; }
+    if (this.cache.size >= CACHE_MAX) {
+      const oldK = this.cache.keys().next().value;
+      this.pool.push(this.cache.get(oldK));
+      this.cache.delete(oldK);
+    }
+    e = this.pool.pop();
+    if (!e) {
+      const cv = document.createElement('canvas');
+      cv.width = TL; cv.height = TL;
+      e = { cv, ctx: cv.getContext('2d') };
+    }
+    e.fresh = true;
+    this.cache.set(k, e);
+    return e;
+  };
+
+  R.draw = function (dt) {
+    this.time += dt;
+    const ctx = this.ctx, c = this.cam, z = c.z, dpr = this.dpr, sim = this.sim;
+    const hw = this.cssW / 2, hh = this.cssH / 2;
+    const toDX = wx => Math.round(((wx - c.x) * z + hw) * dpr);
+    const toDY = wy => Math.round(((wy - c.y) * z + hh) * dpr);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0b0a10';
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    const vx0 = Math.max(0, c.x - hw / z), vx1 = Math.min(W, c.x + hw / z);
+    const vy0 = Math.max(0, c.y - hh / z), vy1 = Math.min(H, c.y + hh / z);
+    const tx0 = Math.floor(vx0 / TL), tx1 = Math.min(sim.tilesX - 1, Math.floor((vx1 - 0.001) / TL));
+    const ty0 = Math.floor(vy0 / TL), ty1 = Math.min(sim.tilesY - 1, Math.floor((vy1 - 0.001) / TL));
+    const visible = [];
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) visible.push(ty * sim.tilesX + tx);
+    const useOv = z < OV_ZOOM || visible.length > CACHE_MAX - 20;
+    // Redraws get a time budget per frame and take turns, so a slow phone
+    // refreshes busy areas less often instead of dropping frames.
+    const rot = this.rot = (this.rot + 7) | 0;
+    const order = k => visible[(k + rot) % visible.length];
+
+    // Overview: refresh what is in view, then draw it as the backdrop.
+    let deadline = performance.now() + (useOv ? 5 : 1.5);
+    for (let q = 0; q < visible.length && performance.now() < deadline; q++) {
+      const k = order(q);
+      if (sim.ovDirty[k]) { this.renderOvBlock(k % sim.tilesX, (k / sim.tilesX) | 0); sim.ovDirty[k] = 0; }
+    }
+    {
+      const dx0 = toDX(vx0), dy0 = toDY(vy0), dx1 = toDX(vx1), dy1 = toDY(vy1);
+      ctx.drawImage(this.ov, vx0 / OV, vy0 / OV, (vx1 - vx0) / OV, (vy1 - vy0) / OV, dx0, dy0, dx1 - dx0, dy1 - dy0);
+    }
+
+    if (!useOv) {
+      deadline = performance.now() + 6;
+      for (let q = 0; q < visible.length; q++) {
+        const k = order(q);
+        if (this.cache.has(k) && !sim.tileDirty[k]) continue;
+        if (performance.now() > deadline) continue;
+        this.renderTile(k % sim.tilesX, (k / sim.tilesX) | 0, this.getTile(k).ctx);
+        sim.tileDirty[k] = 0;
+      }
+      for (const k of visible) {
+        if (!this.cache.has(k)) continue;        // not drawn yet: the overview shows through
+        const e = this.getTile(k);
+        const x0 = (k % sim.tilesX) * TL, y0 = ((k / sim.tilesX) | 0) * TL;
+        const w = Math.min(TL, W - x0), h = Math.min(TL, H - y0);
+        const dx0 = toDX(x0), dy0 = toDY(y0);
+        ctx.drawImage(e.cv, 0, 0, w, h, dx0, dy0, toDX(x0 + w) - dx0, toDY(y0 + h) - dy0);
+      }
+    }
+
+    this.drawGold(ctx, toDX, toDY, vx0, vy0, vx1, vy1);
+    this.drawParticles(ctx, dt, toDX, toDY, vx0, vy0, vx1, vy1);
+    this.drawBalls(ctx, toDX, toDY, vx0, vy0, vx1, vy1);
+    this.drawDrop(ctx, toDX, toDY);
+    if (this.radar >= 2 && !sim.s.found) this.drawArrow(ctx);
+  };
+
+  R.drawBalls = function (ctx, toDX, toDY, vx0, vy0, vx1, vy1) {
+    const sim = this.sim, n = sim.n, bx = sim.bx, by = sim.by, bt = sim.bt, z = this.cam.z, dpr = this.dpr;
+    const size = Math.max(2, Math.min(7, z * 1.1)) * dpr, half = size / 2;
+    const m = 4 / z;
+    const outline = z >= 2;
+    for (let t = 0; t < D.BALLS.length; t++) {
+      if (outline) {
+        ctx.fillStyle = 'rgba(8,6,12,0.75)';
+        for (let k = 0; k < n; k++) {
+          if (bt[k] !== t) continue;
+          const x = bx[k], y = by[k];
+          if (x < vx0 - m || x > vx1 + m || y < vy0 - m || y > vy1 + m) continue;
+          ctx.fillRect(toDX(x) - half - dpr, toDY(y) - half - dpr, size + 2 * dpr, size + 2 * dpr);
+        }
+      }
+      ctx.fillStyle = D.BALLS[t].color;
+      for (let k = 0; k < n; k++) {
+        if (bt[k] !== t) continue;
+        const x = bx[k], y = by[k];
+        if (x < vx0 - m || x > vx1 + m || y < vy0 - m || y > vy1 + m) continue;
+        ctx.fillRect(toDX(x) - half, toDY(y) - half, size, size);
+      }
+    }
+  };
+
+  R.drawParticles = function (ctx, dt, toDX, toDY, vx0, vy0, vx1, vy1) {
+    const sim = this.sim, z = this.cam.z;
+    if (this.particles && z >= 1.5) {
+      for (let f = 0; f < sim.fxn && this.parts.length < 320; f++) {
+        const i = sim.fxI[f], x = i % W, y = (i / W) | 0;
+        if (x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+        const col = MAT[sim.fxT[f]].col;
+        this.parts.push({ x: x + 0.5, y: y + 0.5, vx: (Math.random() - 0.5) * 30, vy: -Math.random() * 25 - 5, life: 0.5 + Math.random() * 0.3,
+          col: `rgb(${col[0]},${col[1]},${col[2]})` });
+      }
+    }
+    sim.fxn = 0;
+    const size = Math.max(1, z * 0.7) * this.dpr;
+    const keep = [];
+    for (const p of this.parts) {
+      p.life -= dt;
+      if (p.life <= 0) continue;
+      p.vy += 90 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      ctx.globalAlpha = Math.min(1, p.life * 2);
+      ctx.fillStyle = p.col;
+      ctx.fillRect(toDX(p.x) - size / 2, toDY(p.y) - size / 2, size, size);
+      keep.push(p);
+    }
+    ctx.globalAlpha = 1;
+    this.parts = keep;
+  };
+
+  R.drawGold = function (ctx, toDX, toDY, vx0, vy0, vx1, vy1) {
+    const s = this.sim.s, g = this.w.gold;
+    if (s.found || g.x < vx0 - 20 || g.x > vx1 + 20 || g.y < vy0 - 20 || g.y > vy1 + 20) return;
+    if (!this.exposed(g.x, g.y)) return;
+    const cx = toDX(g.x + 0.5), cy = toDY(g.y + 0.5), dpr = this.dpr;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 5);
+    ctx.strokeStyle = `rgba(255,214,64,${0.45 + 0.5 * pulse})`;
+    ctx.lineWidth = 2 * dpr;
+    const r = (10 + 6 * pulse) * dpr;
+    ctx.strokeRect(cx - r, cy - r, r * 2, r * 2);
+  };
+
+  R.drawDrop = function (ctx, toDX, toDY) {
+    const d = this.sim.s.drop, dpr = this.dpr;
+    const x = toDX(d.x), y = toDY(d.y), r = 7 * dpr, gap = 3 * dpr;
+    ctx.strokeStyle = 'rgba(236,230,216,0.85)';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(x - r, y); ctx.lineTo(x - gap, y);
+    ctx.moveTo(x + gap, y); ctx.lineTo(x + r, y);
+    ctx.moveTo(x, y - r); ctx.lineTo(x, y - gap);
+    ctx.moveTo(x, y + gap); ctx.lineTo(x, y + r);
+    ctx.stroke();
+  };
+
+  // Points from the open band's centre toward the gold, pinned inside that band.
+  R.drawArrow = function (ctx) {
+    const g = this.w.gold, c = this.cam, dpr = this.dpr, f = this.focus();
+    const dx = g.x + 0.5 - f.x, dy = g.y + 0.5 - f.y;
+    const L = Math.hypot(dx, dy);
+    const hw = this.cssW / 2 - 26, hh = Math.max(20, (this.safeBottom - this.safeTop) / 2 - 26);
+    if (Math.abs(dx * c.z) < hw && Math.abs(dy * c.z) < hh) return;      // gold is on screen
+    const ux = dx / L, uy = dy / L;
+    const s = Math.min(hw / Math.abs(ux || 1e-6), hh / Math.abs(uy || 1e-6));
+    const px = (this.cssW / 2 + ux * s) * dpr, py = ((this.safeTop + this.safeBottom) / 2 + uy * s) * dpr;
+    const a = Math.atan2(uy, ux), r = 12 * dpr;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(a);
+    ctx.fillStyle = '#ffd640';
+    ctx.strokeStyle = '#0b0a10';
+    ctx.lineWidth = 2 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.7); ctx.lineTo(-r * 0.3, 0); ctx.lineTo(-r * 0.7, -r * 0.7);
+    ctx.closePath();
+    ctx.stroke(); ctx.fill();
+    ctx.restore();
+  };
+
+  PQ.Renderer = Renderer;
+})();
+
+</script>
+<script>
+// Pixel Quarry: touch and mouse. One finger pans, two fingers pinch-zoom,
+// a tap acts on the world, and holding still on rock keeps digging.
+(function () {
+  const root = typeof window !== 'undefined' ? window : globalThis;
+  const PQ = root.PQ;
+  const MOVE_PX = 9, TAP_MS = 350, HOLD_S = 0.3, HOLD_EVERY = 0.11;
+
+  function Input(canvas, renderer, handlers) {
+    this.r = renderer;
+    this.h = handlers;
+    this.ptr = new Map();
+    this.pinch = null;
+    this.holdT = 0;
+    this.repeatT = 0;
+
+    const pos = e => {
+      const b = canvas.getBoundingClientRect();
+      return { x: e.clientX - b.left, y: e.clientY - b.top };
+    };
+
+    canvas.addEventListener('pointerdown', e => {
+      canvas.setPointerCapture(e.pointerId);
+      const p = pos(e);
+      this.ptr.set(e.pointerId, { x: p.x, y: p.y, sx: p.x, sy: p.y, t: performance.now(), moved: false });
+      this.holdT = 0; this.repeatT = 0;
+      if (this.ptr.size === 2) {
+        const [a, b] = [...this.ptr.values()];
+        a.moved = b.moved = true;
+        this.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+      }
+    });
+
+    canvas.addEventListener('pointermove', e => {
+      const q = this.ptr.get(e.pointerId);
+      if (!q) return;
+      const p = pos(e);
+      if (this.ptr.size === 1) {
+        if (!q.moved && Math.hypot(p.x - q.sx, p.y - q.sy) > MOVE_PX) q.moved = true;
+        if (q.moved) this.r.pan(p.x - q.x, p.y - q.y);
+        q.x = p.x; q.y = p.y;
+      } else if (this.ptr.size === 2 && this.pinch) {
+        q.x = p.x; q.y = p.y;
+        const [a, b] = [...this.ptr.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        if (this.pinch.d > 0 && d > 0) this.r.zoomAt(d / this.pinch.d, mx, my);
+        this.r.pan(mx - this.pinch.mx, my - this.pinch.my);
+        this.pinch = { d, mx, my };
+      }
+    });
+
+    const end = e => {
+      const q = this.ptr.get(e.pointerId);
+      if (!q) return;
+      this.ptr.delete(e.pointerId);
+      if (e.type === 'pointerup' && this.ptr.size === 0 && !q.moved && performance.now() - q.t < TAP_MS && this.holdT < HOLD_S) {
+        this.h.tap(this.r.toWorld(q.x, q.y));
+      }
+      if (this.ptr.size < 2) this.pinch = null;
+      for (const o of this.ptr.values()) o.moved = true;   // no tap right after a pinch
+    };
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const p = pos(e);
+      this.r.zoomAt(Math.exp(-e.deltaY * 0.0016), p.x, p.y);
+    }, { passive: false });
+  }
+
+  // Called every frame: turns a still, held finger on rock into repeated digs.
+  Input.prototype.update = function (dt) {
+    if (this.ptr.size !== 1) return;
+    const q = this.ptr.values().next().value;
+    if (q.moved) return;
+    this.holdT += dt;
+    if (this.holdT < HOLD_S) return;
+    this.repeatT -= dt;
+    if (this.repeatT <= 0) {
+      this.repeatT = HOLD_EVERY;
+      this.h.hold(this.r.toWorld(q.x, q.y));
+    }
+  };
+
+  PQ.Input = Input;
+})();
+
+</script>
+<script>
+// Pixel Quarry: saving. Progress (bits, upgrades) goes to localStorage as JSON.
+// The world itself regenerates from its seed, so only the mined-pixel bitset and
+// the balls are stored, compressed, in IndexedDB (localStorage as a fallback).
+(function () {
+  const root = typeof window !== 'undefined' ? window : globalThis;
+  const PQ = root.PQ;
+  const META = 'pixelquarry.meta.v1', WORLD_LS = 'pixelquarry.world.v1';
+
+  function loadMeta() {
+    try { const s = localStorage.getItem(META); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+  }
+  function saveMeta(state) {
+    try { state.savedAt = Date.now(); localStorage.setItem(META, JSON.stringify(state)); return true; } catch (e) { return false; }
+  }
+
+  // Fill in anything an older save is missing.
+  function migrate(meta) {
+    const s = Object.assign(PQ.newState(meta.seed >>> 0), meta);
+    s.owned = Object.assign(PQ.newState(0).owned, meta.owned);
+    s.up = {};
+    for (const b of PQ.DATA.BALLS) s.up[b.key] = Object.assign({ dmg: 0, spd: 0, sp: 0 }, (meta.up || {})[b.key]);
+    s.global = Object.assign({ tap: 0, value: 0, radar: 0 }, meta.global);
+    s.settings = Object.assign({ particles: true }, meta.settings);
+    return s;
+  }
+
+  async function pipe(u8, Stream, mode) {
+    const out = await new Response(new Blob([u8]).stream().pipeThrough(new Stream(mode))).arrayBuffer();
+    return new Uint8Array(out);
+  }
+  const canZip = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
+  async function pack(u8) { return canZip ? { z: 1, d: await pipe(u8, CompressionStream, 'deflate-raw') } : { z: 0, d: u8 }; }
+  async function unpack(p) { return p.z ? pipe(p.d, DecompressionStream, 'deflate-raw') : p.d; }
+
+  function b64(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  function unb64(str) {
+    const s = atob(str), u8 = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
+    return u8;
+  }
+
+  function db() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('pixelquarry', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+  async function idbPut(key, val) {
+    const d = await db();
+    return new Promise((res, rej) => {
+      const tx = d.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(val, key);
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+  }
+  async function idbGet(key) {
+    const d = await db();
+    return new Promise((res, rej) => {
+      const r = d.transaction('kv').objectStore('kv').get(key);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+
+  async function worldRecord(world, sim) {
+    const balls = sim.exportBalls();
+    return { seed: world.seed, mined: await pack(world.mined), balls: new Uint8Array(balls.buffer.slice(0)) };
+  }
+
+  async function saveWorld(world, sim) {
+    const rec = await worldRecord(world, sim);
+    try { await idbPut('world', rec); return true; } catch (e) { /* fall through */ }
+    try {
+      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, z: rec.mined.z, mined: b64(rec.mined.d), balls: b64(rec.balls) }));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  async function loadWorld(seed) {
+    let rec = null;
+    try { rec = await idbGet('world'); } catch (e) { rec = null; }
+    if (!rec) {
+      try {
+        const s = localStorage.getItem(WORLD_LS);
+        if (s) { const j = JSON.parse(s); rec = { seed: j.seed, mined: { z: j.z, d: unb64(j.mined) }, balls: unb64(j.balls) }; }
+      } catch (e) { rec = null; }
+    }
+    if (!rec || rec.seed !== seed) return null;
+    const balls = new Float32Array(rec.balls.buffer.slice(rec.balls.byteOffset, rec.balls.byteOffset + rec.balls.byteLength));
+    return { mined: await unpack(rec.mined), balls };
+  }
+
+  async function clearWorld() {
+    try { await idbPut('world', null); } catch (e) { /* ignore */ }
+    try { localStorage.removeItem(WORLD_LS); } catch (e) { /* ignore */ }
+  }
+
+  // A text save code that can be pasted into another device.
+  async function exportCode(state, world, sim) {
+    const rec = await worldRecord(world, sim);
+    const body = JSON.stringify({ meta: state, z: rec.mined.z, mined: b64(rec.mined.d), balls: b64(rec.balls) });
+    return 'PQ1:' + b64(new TextEncoder().encode(body));
+  }
+
+  async function importCode(code) {
+    const text = String(code || '').trim();
+    if (!text.startsWith('PQ1:')) throw new Error('That is not a Pixel Quarry save code. Codes start with PQ1:');
+    let j;
+    try { j = JSON.parse(new TextDecoder().decode(unb64(text.slice(4)))); } catch (e) { throw new Error('The save code is incomplete. Copy the whole code and try again.'); }
+    if (!j.meta || typeof j.meta.seed !== 'number') throw new Error('The save code has no game in it.');
+    const rec = { seed: j.meta.seed >>> 0, mined: { z: j.z, d: unb64(j.mined) }, balls: unb64(j.balls) };
+    try { await idbPut('world', rec); } catch (e) {
+      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, z: j.z, mined: j.mined, balls: j.balls }));
+    }
+    j.meta.savedAt = Date.now();
+    localStorage.setItem(META, JSON.stringify(j.meta));
+  }
+
+  PQ.Save = { loadMeta, saveMeta, migrate, saveWorld, loadWorld, clearWorld, exportCode, importCode };
+})();
+
+</script>
+<script>
+// Pixel Quarry: the DOM layer. HUD, shop sheet, toasts and dialogs.
+(function () {
+  const PQ = window.PQ;
+  const D = PQ.DATA, BALLS = D.BALLS;
+  const $ = id => document.getElementById(id);
+  const UNITS = ['K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+
+  function fmt(n) {
+    if (!isFinite(n)) return '—';
+    if (n < 1000) return Math.floor(n).toLocaleString('en-US');
+    let i = -1;
+    while (n >= 999.5 && i < UNITS.length - 1) { n /= 1000; i++; }
+    return (n < 10 ? n.toFixed(2) : n < 100 ? n.toFixed(1) : n.toFixed(0)) + UNITS[i];
+  }
+  function fmtTime(sec) {
+    sec = Math.floor(sec);
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
+    return `${m}m ${String(s).padStart(2, '0')}s`;
+  }
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function UI(game) {
+    this.g = game;
+    this.tab = 'balls';
+    this.t = 0;
+    this.toastT = 0;
+    this.confirm = null;           // which inline confirm is open in the World tab
+    this.build();
+    this.bind();
+  }
+  const U = UI.prototype;
+
+  U.build = function () {
+    // Balls
+    $('panel-balls').innerHTML = `
+      <div class="buyrow"><span>Buy amount</span>
+        <div class="buymode" id="buymode" role="group" aria-label="How many to buy">
+          <button type="button" data-n="1">×1</button><button type="button" data-n="10">×10</button><button type="button" data-n="0">Max</button>
+        </div></div>` + BALLS.map((b, t) => `
+      <div class="row ball" id="ball-${t}">
+        <span class="swatch" style="--c:${b.color}"></span>
+        <div><div class="name">${esc(b.name)}<span class="count" id="bc-${t}"></span></div>
+          <div class="desc" id="bd-${t}">${esc(b.desc)}</div></div>
+        <button type="button" class="buy" id="bb-${t}" data-act="ball" data-t="${t}"><span class="lbl">Buy</span><span class="cost">0</span></button>
+      </div>`).join('');
+
+    // Upgrades: tools first, then one group per ball type (shown once owned)
+    const toolRows = D.UP.map(u => `
+      <div class="row plain" id="up-${u.key}">
+        <div><div class="name">${esc(u.name)}<span class="lv"></span></div><div class="desc"></div></div>
+        <button type="button" class="buy" data-act="up" data-key="${u.key}"><span class="lbl">Upgrade</span><span class="cost">0</span></button>
+      </div>`).join('');
+    const ballGroups = BALLS.map((b, t) => {
+      const kinds = ['dmg', 'spd'].concat(b.special ? ['sp'] : []);
+      return `<div id="ug-${t}" hidden>
+        <div class="group-h"><span class="swatch" style="--c:${b.color}"></span>${esc(b.name)}</div>
+        ${kinds.map(k => {
+          const name = k === 'sp' ? b.special.name : D.BALL_UP[k].name;
+          const desc = k === 'sp' ? b.special.desc : D.BALL_UP[k].desc;
+          return `<div class="row plain" id="bu-${t}-${k}">
+            <div><div class="name">${esc(name)}<span class="lv"></span></div><div class="desc">${esc(desc)}</div></div>
+            <button type="button" class="buy" data-act="bup" data-t="${t}" data-kind="${k}"><span class="lbl">Upgrade</span><span class="cost">0</span></button>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }).join('');
+    $('panel-upgrades').innerHTML = `<div class="group-h">Tools</div>${toolRows}${ballGroups}`;
+    this.buildWorld();
+  };
+
+  U.buildWorld = function () {
+    const s = this.g.state;
+    const c = this.confirm;
+    $('panel-world').innerHTML = `
+      ${s.found ? `<div class="group-h">Golden Pixel found</div>
+        <p class="note">Start a fresh world with ${s.stars + 1} star${s.stars ? 's' : ''}. Each star pays +${D.STAR_BONUS * 100}% bits for good. Balls and upgrades reset.</p>
+        <div class="actions"><button type="button" class="btn gold" data-act="prestige">Start a new world</button></div>` : ''}
+      <dl class="stats">
+        <div><dt>Pixels broken</dt><dd id="st-broken">0</dd></div>
+        <div><dt>World mined</dt><dd id="st-mined">0%</dd></div>
+        <div><dt>Time here</dt><dd id="st-time">0m</dd></div>
+        <div><dt>Stars</dt><dd id="st-stars">0</dd></div>
+        <div><dt>Earned here</dt><dd id="st-earned">0</dd></div>
+        <div><dt>Earned ever</dt><dd id="st-life">0</dd></div>
+      </dl>
+      <div class="group-h">Settings</div>
+      <label class="toggle"><input type="checkbox" id="optParticles" ${s.settings.particles ? 'checked' : ''}> Rock chips when pixels break</label>
+      <div class="group-h">Save</div>
+      <p class="note">The game saves on this device every few seconds. A save code moves it to another device.</p>
+      <div class="actions">
+        <button type="button" class="btn" data-act="copy-save">Copy save code</button>
+        <button type="button" class="btn" data-act="show-load">Load a save code</button>
+      </div>
+      ${c === 'code' ? `<textarea id="saveCode" readonly aria-label="Your save code"></textarea>` : ''}
+      ${c === 'load' ? `<textarea id="loadCode" aria-label="Paste a save code" placeholder="Paste a code that starts with PQ1:"></textarea>
+        <div class="actions"><button type="button" class="btn gold" data-act="do-load">Load this save</button><button type="button" class="btn" data-act="cancel">Cancel</button></div>` : ''}
+      <div class="group-h">Danger</div>
+      ${c === 'wipe' ? `<div class="confirm"><p>This deletes this world, your balls and upgrades. Stars are kept.</p>
+        <div class="actions"><button type="button" class="btn danger" data-act="do-wipe">Delete and start over</button><button type="button" class="btn" data-act="cancel">Keep playing</button></div></div>`
+        : `<div class="actions"><button type="button" class="btn danger" data-act="wipe">Start over</button></div>`}
+      <p class="note">Seed ${s.seed}</p>`;
+  };
+
+  U.bind = function () {
+    document.querySelector('.tabs').addEventListener('click', e => {
+      const b = e.target.closest('[data-tab]');
+      if (!b) return;
+      const sheet = $('sheet');
+      if (b.dataset.tab === this.tab) this.setOpen(!sheet.classList.contains('open'));
+      else { this.showTab(b.dataset.tab); this.setOpen(true); }
+    });
+    $('grip').addEventListener('click', () => this.setOpen(!$('sheet').classList.contains('open')));
+    $('sheetBody').addEventListener('click', e => {
+      const b = e.target.closest('[data-n]');
+      if (b) { this.g.state.buyMode = +b.dataset.n; this.refresh(); return; }
+      this.act(e);
+    });
+    $('sheetBody').addEventListener('change', e => {
+      if (e.target.id === 'optParticles') this.g.state.settings.particles = e.target.checked;
+    });
+    $('modal').addEventListener('click', e => this.act(e));
+    $('btnDrop').addEventListener('click', () => this.g.renderer.lookAtDrop(this.g.state.drop, Math.max(this.g.renderer.cam.z, 3)));
+    $('btnMap').addEventListener('click', () => this.g.renderer.lookAt(D.W / 2, D.H / 2, 0.01));
+  };
+
+  U.setOpen = function (open) {
+    $('sheet').classList.toggle('open', open);
+    $('grip').setAttribute('aria-expanded', open);
+    $('grip').setAttribute('aria-label', open ? 'Hide shop' : 'Show shop');
+  };
+
+  U.showTab = function (tab) {
+    this.tab = tab;
+    document.querySelectorAll('.tabs [data-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
+    ['balls', 'upgrades', 'world'].forEach(k => { $('panel-' + k).hidden = k !== tab; });
+    if (tab === 'world') { this.buildWorld(); }
+    this.refresh();
+  };
+
+  U.buyCount = function (t) {
+    const m = this.g.state.buyMode;
+    return m === 0 ? Math.max(1, this.g.sim.maxBuy(t)) : m;
+  };
+
+  U.act = async function (e) {
+    const b = e.target.closest('[data-act]');
+    if (!b || b.disabled) return;
+    const g = this.g, sim = g.sim, s = g.state;
+    switch (b.dataset.act) {
+      case 'ball': {
+        const t = +b.dataset.t, n = sim.buyBall(t, this.buyCount(t));
+        if (n && t > 0 && s.owned[BALLS[t].key] === n) this.toast(`First ${BALLS[t].name} out. Its upgrades are in the Upgrades tab.`);
+        break;
+      }
+      case 'up': if (g.sim.buyUp(b.dataset.key) && b.dataset.key === 'radar' && s.global.radar === 1) this.toast('Radar on. It reads the centre of your screen.'); break;
+      case 'bup': sim.buyBallUp(+b.dataset.t, b.dataset.kind); break;
+      case 'prestige': this.closeModal(); g.newWorld(true); return;
+      case 'keep': this.closeModal(); this.buildWorld(); break;
+      case 'close': this.closeModal(); break;
+      case 'wipe': this.confirm = 'wipe'; this.buildWorld(); break;
+      case 'do-wipe': this.confirm = null; g.newWorld(false); return;
+      case 'cancel': this.confirm = null; this.buildWorld(); break;
+      case 'show-load': this.confirm = 'load'; this.buildWorld(); $('loadCode').focus(); break;
+      case 'copy-save': {
+        const code = await PQ.Save.exportCode(s, g.world, sim);
+        this.confirm = 'code'; this.buildWorld();
+        const ta = $('saveCode');
+        ta.value = code;
+        try { await navigator.clipboard.writeText(code); this.toast('Save code copied'); }
+        catch (err) { ta.focus(); ta.select(); this.toast('Select the code below and copy it'); }
+        break;
+      }
+      case 'do-load': {
+        try { await PQ.Save.importCode($('loadCode').value); g.reload(); }
+        catch (err) { this.toast(err.message, 4000); }
+        return;
+      }
+    }
+    this.refresh();
+  };
+
+  U.toast = function (msg, ms) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.hidden = false;
+    this.toastT = (ms || 2400) / 1000;
+  };
+
+  U.modal = function (html) {
+    $('modalCard').innerHTML = html;
+    $('modal').hidden = false;
+    const f = $('modalCard').querySelector('button');
+    if (f) f.focus();
+  };
+  U.closeModal = function () { $('modal').hidden = true; };
+
+  U.welcome = function () {
+    this.modal(`<h2>Somewhere down there is one Golden Pixel.</h2>
+      <p>This world is 10,000,000 pixels deep. Your balls bounce around and break rock, and every broken pixel pays bits.</p>
+      <ul>
+        <li>Spend bits on more balls and upgrades.</li>
+        <li>Tap rock to dig it yourself. Hold to keep digging.</li>
+        <li>Tap open space to move the drop point, where new balls appear.</li>
+        <li>Drag to look around. Pinch to zoom.</li>
+      </ul>
+      <div class="actions"><button type="button" class="btn gold" data-act="close">Start digging</button></div>`);
+  };
+
+  U.offline = function (r) {
+    if (r.gain < 1) return;
+    this.modal(`<h2>Welcome back</h2>
+      <p class="sub">Your balls kept working for ${fmtTime(r.seconds)}${r.seconds >= D.OFFLINE_CAP ? ' (the most they bank)' : ''}.</p>
+      <div class="big">+${fmt(r.gain)}</div>
+      <div class="actions"><button type="button" class="btn gold" data-act="close">Collect</button></div>`);
+  };
+
+  U.gold = function () {
+    const s = this.g.state;
+    this.modal(`<h2>You found the Golden Pixel.</h2>
+      <p class="sub">One pixel out of 10,000,000, after ${fmtTime(s.foundTime)} in this world. It pays a finder's fee of</p>
+      <div class="big">+${fmt(s.goldReward)}</div>
+      <p>Start a new world to take a star with you: +${D.STAR_BONUS * 100}% bits forever, for every Golden Pixel you find.</p>
+      <div class="actions">
+        <button type="button" class="btn gold" data-act="prestige">New world, +1 star</button>
+        <button type="button" class="btn" data-act="keep">Keep mining here</button>
+      </div>`);
+  };
+
+  U.setBuy = function (btn, cost, ok, label) {
+    btn.disabled = !ok;
+    btn.classList.toggle('afford', ok);
+    btn.querySelector('.cost').textContent = isFinite(cost) ? fmt(cost) : 'Max';
+    if (label) btn.querySelector('.lbl').textContent = label;
+  };
+
+  // Text and button states. Runs a few times a second, not every frame.
+  U.refresh = function () {
+    const g = this.g, s = g.state, sim = g.sim;
+    $('bits').textContent = fmt(s.bits);
+    $('rate').textContent = `+${fmt(s.rate)} bits/s`;
+    $('ballCount').textContent = sim.n.toLocaleString('en-US');
+    document.querySelectorAll('#buymode [data-n]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.n === s.buyMode));
+
+    // Radar reads the screen centre.
+    const radar = $('radar');
+    radar.hidden = s.global.radar < 1;
+    if (!radar.hidden) {
+      if (s.found) { $('heat').style.width = '100%'; $('radarText').textContent = 'Found'; }
+      else {
+        const c = g.renderer.focus(), gd = g.world.gold;
+        const d = Math.hypot(gd.x - c.x, gd.y - c.y), heat = Math.max(0, 1 - d / 1800);
+        $('heat').style.width = (heat * 100).toFixed(0) + '%';
+        const word = heat < 0.25 ? 'Cold' : heat < 0.5 ? 'Cool' : heat < 0.75 ? 'Warm' : heat < 0.93 ? 'Hot' : 'Burning';
+        $('radarText').textContent = s.global.radar >= 3 ? `${word} · ${Math.round(d).toLocaleString('en-US')} px` : word;
+      }
+    }
+
+    let upAffordable = false;
+    if (this.tab === 'balls') {
+      BALLS.forEach((b, t) => {
+        const unlocked = sim.unlocked(t);
+        $('ball-' + t).classList.toggle('locked', !unlocked);
+        $('bc-' + t).textContent = s.owned[b.key] ? `×${s.owned[b.key].toLocaleString('en-US')}` : '';
+        $('bd-' + t).textContent = unlocked ? b.desc : `Unlocks after earning ${fmt(b.unlock)} bits in this world.`;
+        const n = this.buyCount(t), cost = sim.ballCost(t, n);
+        const full = sim.n >= D.MAX_BALLS;
+        this.setBuy($('bb-' + t), cost, unlocked && !full && cost <= s.bits, full ? 'World full' : `Buy ${n}`);
+      });
+    }
+
+    D.UP.forEach(u => {
+      const row = $('up-' + u.key), lvl = s.global[u.key], cost = sim.upCost(u.key), maxed = lvl >= u.max;
+      const ok = !maxed && cost <= s.bits;
+      upAffordable = upAffordable || ok;
+      if (this.tab !== 'upgrades') return;
+      row.querySelector('.lv').textContent = `Lv ${lvl}${u.max < 99 ? '/' + u.max : ''}`;
+      row.querySelector('.desc').textContent = Array.isArray(u.desc) ? (u.desc[Math.min(lvl, u.desc.length - 1)]) : u.desc;
+      this.setBuy(row.querySelector('.buy'), maxed ? Infinity : cost, ok, maxed ? 'Done' : 'Upgrade');
+    });
+    BALLS.forEach((b, t) => {
+      const owned = s.owned[b.key] > 0;
+      $('ug-' + t).hidden = !owned;
+      if (!owned) return;
+      ['dmg', 'spd', 'sp'].forEach(k => {
+        const row = $(`bu-${t}-${k}`);
+        if (!row) return;
+        const lvl = s.up[b.key][k], max = sim.ballUpMax(t, k), maxed = lvl >= max, cost = sim.ballUpCost(t, k);
+        const ok = !maxed && cost <= s.bits;
+        upAffordable = upAffordable || ok;
+        if (this.tab !== 'upgrades') return;
+        row.querySelector('.lv').textContent = `Lv ${lvl}/${max}`;
+        this.setBuy(row.querySelector('.buy'), maxed ? Infinity : cost, ok, maxed ? 'Done' : 'Upgrade');
+      });
+    });
+    $('upDot').hidden = !upAffordable || this.tab === 'upgrades';
+
+    if (this.tab === 'world' && $('st-broken')) {
+      $('st-broken').textContent = fmt(s.broken);
+      $('st-mined').textContent = (100 * g.world.minedCount / g.world.solidTotal).toFixed(2) + '%';
+      $('st-time').textContent = fmtTime(s.playTime);
+      $('st-stars').textContent = s.stars;
+      $('st-earned').textContent = fmt(s.earned);
+      $('st-life').textContent = fmt(s.lifetime);
+    }
+  };
+
+  // Tell the renderer which band of the screen is not covered by HUD or sheet.
+  U.measure = function () {
+    const r = this.g.renderer;
+    r.safeTop = document.querySelector('.hud').getBoundingClientRect().bottom - 14;
+    r.safeBottom = $('sheet').getBoundingClientRect().top;
+  };
+
+  U.tick = function (dt) {
+    this.t += dt;
+    if (this.t >= 0.2) {
+      this.t = 0;
+      this.measure();
+      this.refresh();
+    }
+    if (this.toastT > 0) {
+      this.toastT -= dt;
+      if (this.toastT <= 0) $('toast').hidden = true;
+    }
+  };
+
+  PQ.UI = UI;
+  PQ.fmt = fmt;
+})();
+
+</script>
+<script>
+// Pixel Quarry: boot, game loop, autosave.
+(function () {
+  const PQ = window.PQ, D = PQ.DATA;
+  const $ = id => document.getElementById(id);
+  const canvas = $('world');
+  const yieldFrame = () => new Promise(r => setTimeout(r, 0));
+
+  function newSeed() {
+    try { return crypto.getRandomValues(new Uint32Array(1))[0]; } catch (e) { return (Math.random() * 4294967296) >>> 0; }
+  }
+
+  function progress(f, text) {
+    $('loadBar').style.width = (Math.min(1, f) * 100).toFixed(1) + '%';
+    if (text) $('loadText').textContent = text;
+  }
+
+  const game = PQ.game = { state: null, world: null, sim: null, renderer: null, ui: null, input: null, running: false };
+  let saving = false;
+
+  async function saveAll() {
+    if (!game.sim || saving) return;
+    saving = true;
+    PQ.Save.saveMeta(game.state);
+    try { await PQ.Save.saveWorld(game.world, game.sim); } catch (e) { /* storage blocked: progress still in meta */ }
+    saving = false;
+  }
+
+  async function boot(state, restore) {
+    game.running = false;
+    $('loading').hidden = false;
+    progress(0, 'Generating 10,000,000 pixels');
+    await yieldFrame();
+
+    const world = PQ.World.create(state.seed);
+    PQ.World.prepare(world);
+    const CH = 160;
+    for (let y = 0; y < D.H; y += CH) {
+      PQ.World.genRows(world, y, Math.min(D.H, y + CH));
+      progress(0.65 * Math.min(1, (y + CH) / D.H));
+      await yieldFrame();
+    }
+    PQ.World.finalize(world);
+
+    let saved = null;
+    if (restore) { try { saved = await PQ.Save.loadWorld(world.seed); } catch (e) { saved = null; } }
+    if (saved) PQ.World.applyMined(world, saved.mined);
+    else state.drop = { x: D.W / 2, y: world.surface[D.W >> 1] - 30 };
+
+    const sim = new PQ.Sim(world, state);
+    if (saved) sim.importBalls(saved.balls);
+    sim.spawnMissing();
+
+    const renderer = new PQ.Renderer(canvas, world, sim);
+    renderer.resize();
+    progress(0.65, 'Drawing the map');
+    await renderer.buildOverview(f => progress(0.65 + 0.35 * f));
+    renderer.lookAtDrop(state.drop, 3);
+
+    Object.assign(game, { state, world, sim, renderer });
+    if (game.input) game.input.r = renderer;
+    else game.input = new PQ.Input(canvas, renderer, {
+      tap: p => onTap(p, false),
+      hold: p => onTap(p, true),
+    });
+    if (game.ui) { game.ui.g = game; game.ui.build(); game.ui.showTab(game.ui.tab); }
+    else game.ui = new PQ.UI(game);
+    game.ui.measure();
+    game.ui.refresh();
+
+    $('loading').hidden = true;
+    game.running = true;
+  }
+
+  let dropHinted = false;
+  function onTap(p, held) {
+    const sim = game.sim;
+    const x = Math.floor(p.x), y = Math.floor(p.y);
+    if (held && (x < 0 || y < 0 || x >= D.W || y >= D.H || !(game.world.cells[y * D.W + x] & D.TYPE_MASK))) return;
+    const r = sim.tap(p.x, p.y);
+    if (r === 'relic') game.ui.toast('Relics cannot be broken. Balls bounce off them.');
+    if (r === 'drop' && !dropHinted) { dropHinted = true; game.ui.toast('Drop point moved. New balls appear here.'); }
+  }
+
+  game.newWorld = async function (prestige) {
+    const s = game.state;
+    const next = prestige ? PQ.prestige(s, newSeed()) : PQ.prestige(Object.assign({}, s, { found: false }), newSeed());
+    try { await PQ.Save.clearWorld(); } catch (e) { /* ignore */ }
+    PQ.Save.saveMeta(next);
+    await boot(next, false);
+    await saveAll();
+    if (prestige) game.ui.toast(`New world. ${next.stars} star${next.stars === 1 ? '' : 's'}: +${next.stars * D.STAR_BONUS * 100}% bits.`, 3500);
+  };
+
+  game.reload = function () { location.reload(); };
+
+  let last = performance.now(), lastWall = Date.now(), metaT = 0, worldT = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const wall = Date.now();
+    if (!game.running) { last = now; lastWall = wall; return; }
+    const gap = (wall - lastWall) / 1000;
+    lastWall = wall;
+    if (gap > 60) game.ui.offline(game.sim.offline(gap));
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+
+    const { sim, renderer, state } = game;
+    sim.step(dt);
+    game.input.update(dt);
+    renderer.radar = state.global.radar;
+    renderer.particles = state.settings.particles;
+    renderer.draw(dt);
+    for (const e of sim.events.splice(0)) {
+      if (e.type === 'gold') { game.ui.gold(); saveAll(); }
+    }
+    game.ui.tick(dt);
+
+    metaT += dt; worldT += dt;
+    if (metaT > 5) { metaT = 0; PQ.Save.saveMeta(state); }
+    if (worldT > 30) { worldT = 0; saveAll(); }
+  }
+
+  window.addEventListener('resize', () => game.renderer && game.renderer.resize());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveAll(); });
+  window.addEventListener('pagehide', saveAll);
+
+  async function start() {
+    const meta = PQ.Save.loadMeta();
+    const state = meta ? PQ.Save.migrate(meta) : PQ.newState(newSeed());
+    await boot(state, !!meta);
+    if (meta) {
+      const away = (Date.now() - (meta.savedAt || Date.now())) / 1000;
+      if (away > 60) game.ui.offline(game.sim.offline(away));
+    } else {
+      game.ui.welcome();
+      PQ.Save.saveMeta(state);
+    }
+    lastWall = Date.now();
+    requestAnimationFrame(frame);
+  }
+
+  // Offline install, only where a real page can host a service worker.
+  try {
+    if ('serviceWorker' in navigator && window.isSecureContext && window.top === window.self &&
+        document.querySelector('link[rel="manifest"]')) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+  } catch (e) { /* sandboxed frame */ }
+
+  start();
+})();
+
+</script>
+</body>
+</html>
