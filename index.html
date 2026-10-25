@@ -2658,13 +2658,30 @@ textarea {
     });
   }
 
+  // Copies everything before the first await, so the record is the world as of the call.
   async function worldRecord(world, sim) {
-    const balls = sim.exportBalls();
-    return { seed: world.seed, gen: PQ.DATA.GEN, mined: await pack(world.mined), fog: await pack(world.fog), balls: new Uint8Array(balls.buffer.slice(0)) };
+    const mined = world.mined.slice(), fog = world.fog.slice(), balls = sim.exportBalls();
+    return { seed: world.seed, gen: PQ.DATA.GEN, mined: await pack(mined), fog: await pack(fog), balls: new Uint8Array(balls.buffer.slice(0)) };
   }
 
   async function saveWorld(world, sim) {
     const rec = await worldRecord(world, sim);
+    return putWorld(rec);
+  }
+
+  // Progress and world as of one moment. The progress snapshot is taken with the world copy
+  // and written only once the world is stored: closing the app mid-save must not keep the
+  // bits or ◆ a pixel paid while the world forgets it was mined (the pixel would pay again).
+  async function saveGame(state, world, sim) {
+    state.savedAt = Date.now();
+    const meta = JSON.stringify(state);
+    const rec = await worldRecord(world, sim);
+    const ok = await putWorld(rec);            // if no world storage works at all, progress is still kept
+    try { localStorage.setItem(META, meta); } catch (e) { return false; }
+    return ok;
+  }
+
+  async function putWorld(rec) {
     try { await idbPut('world', rec); return true; } catch (e) { /* fall through */ }
     try {
       localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, gen: rec.gen, z: rec.mined.z, mined: b64(rec.mined.d), fog: b64(rec.fog.d), balls: b64(rec.balls) }));
@@ -2712,7 +2729,7 @@ textarea {
     localStorage.setItem(META, JSON.stringify(j.meta));
   }
 
-  PQ.Save = { loadMeta, saveMeta, migrate, saveWorld, loadWorld, clearWorld, exportCode, importCode };
+  PQ.Save = { loadMeta, saveMeta, migrate, saveWorld, saveGame, loadWorld, clearWorld, exportCode, importCode };
 })();
 
 </script>
@@ -3304,7 +3321,7 @@ textarea {
 // Pixel Quarry: boot, game loop, autosave.
 (function () {
   const PQ = window.PQ, D = PQ.DATA;
-  const BUILD = '20261025-000021';                       // build.py stamps the build time here
+  const BUILD = '20261025-091847';                       // build.py stamps the build time here
   const $ = id => document.getElementById(id);
   const canvas = $('world');
   const yieldFrame = () => new Promise(r => setTimeout(r, 0));
@@ -3324,8 +3341,7 @@ textarea {
   async function saveAll() {
     if (!game.sim || saving) return;
     saving = true;
-    PQ.Save.saveMeta(game.state);
-    try { await PQ.Save.saveWorld(game.world, game.sim); } catch (e) { /* storage blocked: progress still in meta */ }
+    try { await PQ.Save.saveGame(game.state, game.world, game.sim); } catch (e) { PQ.Save.saveMeta(game.state); }
     saving = false;
   }
 
@@ -3426,7 +3442,7 @@ textarea {
     } catch (e) { game.ui.toast('Could not reach the server. Try again when online.'); }
   };
 
-  let last = performance.now(), lastWall = Date.now(), metaT = 0, worldT = 0;
+  let last = performance.now(), lastWall = Date.now(), saveT = 0;
   function frame(now) {
     requestAnimationFrame(frame);
     const wall = Date.now();
@@ -3451,9 +3467,8 @@ textarea {
     }
     game.ui.tick(dt);
 
-    metaT += dt; worldT += dt;
-    if (metaT > 5) { metaT = 0; PQ.Save.saveMeta(state); }
-    if (worldT > 30) { worldT = 0; saveAll(); }
+    saveT += dt;                               // progress and world always save together (see Save.saveGame)
+    if (saveT > 10) { saveT = 0; saveAll(); }
   }
 
   window.addEventListener('resize', () => game.renderer && game.renderer.resize());
