@@ -6,7 +6,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="description" content="Ten million pixels, one of them gold. Buy balls, mine the world, find the Golden Pixel.">
-<meta name="theme-color" content="#0f0d15">
+<meta name="theme-color" content="#080b09">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -21,12 +21,14 @@
 /* Layout: the quarry canvas fills the screen; a translucent HUD strip rides the top,
    a pull-up shop sheet sits at the bottom. One deliberate dark world, one gold accent. */
 :root {
-  --ground: #0f0d15;
-  --panel: #18151f;
-  --panel-2: #221e2c;
-  --line: #312b3f;
-  --ink: #ece6d8;
-  --muted: #9a93a8;
+  --ground: #080b09;
+  --panel: #0f1511;
+  --panel-2: #172019;
+  --line: #26342a;
+  --ink: #e6efe6;
+  --muted: #8fa394;
+  --neon: #6dff7c;
+  --dia: #ff40e0;
   --gold: #ffd640;
   --gold-ink: #1c1604;
   --warn: #ff6a58;
@@ -371,15 +373,73 @@ textarea {
   .sheet-body, .heat i { transition: none; }
 }
 
+/* Diamonds in the HUD */
+.dia { margin-top: 4px; font: 500 15px/1 var(--display); color: var(--dia); text-shadow: 0 0 8px rgba(255, 64, 224, 0.55); font-variant-numeric: tabular-nums; }
+.row[hidden] { display: none; }
+
+/* Skill tree: one branch per ball, neon nodes joined by lines */
+.treecard {
+  position: sticky; top: 0; z-index: 1;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center;
+  padding: 10px 12px; margin-bottom: 10px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+}
+.treecard .tc-head { grid-column: 1; display: flex; flex-direction: column; gap: 2px; }
+.treecard .tc-kick { font: 500 11px var(--display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--c); }
+.treecard .tc-name { font: 700 17px/1.1 var(--display); }
+.treecard .tc-name small { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 4px; }
+.treecard .tc-body { grid-column: 1; margin: 0; font-size: 13px; color: var(--muted); }
+.treecard .tc-body b { color: var(--ink); }
+.treecard .buy { grid-column: 2; grid-row: 1 / span 2; }
+.treecard .buy .cost { color: var(--dia); }
+.tree { display: flex; flex-direction: column; gap: 10px; }
+.branch { display: flex; align-items: center; color: var(--c); }
+.branch .link { flex: 0 0 14px; height: 2px; background: var(--c); opacity: 0.35; }
+.node {
+  position: relative; flex: 0 0 auto;
+  width: 46px; height: 46px; padding: 9px;
+  display: grid; place-items: center;
+  background: #0b100c; color: var(--c);
+  border: 2px solid var(--c); border-radius: 8px;
+  opacity: 0.45;
+}
+.node.root { border-radius: 50%; }
+.node svg { width: 24px; height: 24px; }
+.node.have, .node.afford { opacity: 1; }
+.node.have { background: color-mix(in srgb, var(--c) 16%, #0b100c); box-shadow: 0 0 10px color-mix(in srgb, var(--c) 45%, transparent); }
+.node.afford:not(.maxed) { animation: nodepulse 1.4s ease-in-out infinite; }
+.node.shut { opacity: 0.22; }
+.node.sel { outline: 2px solid var(--ink); outline-offset: 2px; }
+.node .pip {
+  position: absolute; right: -4px; bottom: -6px;
+  padding: 0 3px; border-radius: 4px;
+  background: var(--ground); color: var(--ink);
+  font: 500 10px/14px var(--display);
+}
+.node .pip:empty { display: none; }
+@keyframes nodepulse { 50% { box-shadow: 0 0 14px var(--c); } }
+
+/* Journal and story cards */
+.journal { margin: 0 0 10px; }
+.journal h3, .journal summary { margin: 0 0 6px; font: 700 15px var(--display); color: var(--ink); cursor: pointer; }
+.journal small { color: var(--muted); font-weight: 500; margin-left: 4px; }
+.journal ol { margin: 0; padding-left: 28px; color: var(--ink); font-size: 14px; }
+.journal li { margin: 5px 0; line-height: 1.45; }
+.journal li.gap { color: var(--muted); letter-spacing: 0.3em; }
+.card p.story { font-size: 16px; line-height: 1.55; color: var(--ink); border-left: 2px solid var(--neon); padding-left: 12px; }
+@media (prefers-reduced-motion: reduce) { .node.afford:not(.maxed) { animation: none; } }
+.row.locked .buy .cost { color: var(--dia); }
+
 </style>
 </head>
 <body>
-<canvas id="world" aria-label="The quarry. Drag to look around, pinch to zoom, tap rock to dig, tap open space to move the drop point."></canvas>
+<canvas id="world" aria-label="The quarry. Drag to look around, pinch to zoom, tap rock to dig, tap open space to aim the launcher, hold open space to move it."></canvas>
 
 <header class="hud">
   <div class="hud-left">
     <div class="bits" id="bits" aria-live="off">0</div>
     <div class="rate" id="rate">+0 bits/s</div>
+    <div class="dia" id="dia" title="Diamonds, from upgrade pixels. Spend them in the Tree.">◆ 0</div>
     <div class="radar" id="radar" title="Gold radar: how close your nearest ball is to the Golden Pixel" hidden>
       <span class="heat"><i id="heat"></i></span>
       <span id="radarText">Cold</span>
@@ -389,7 +449,7 @@ textarea {
   <div class="hud-right">
     <div class="ballcount"><span id="ballCount">1</span> <small>balls</small></div>
     <div class="mini-btns">
-      <button class="chip" id="btnDrop" type="button" title="Jump to the drop point">Drop</button>
+      <button class="chip" id="btnDrop" type="button" title="Jump to the launcher">Launcher</button>
       <button class="chip" id="btnMap" type="button" title="Zoom out to the whole world">Map</button>
     </div>
   </div>
@@ -399,7 +459,7 @@ textarea {
   <div class="sheet-bar">
     <nav class="tabs" role="tablist">
       <button type="button" role="tab" id="tab-balls" data-tab="balls" aria-selected="true">Balls<span class="dot" id="ballDot" hidden></span></button>
-      <button type="button" role="tab" id="tab-upgrades" data-tab="upgrades" aria-selected="false">Upgrades<span class="dot" id="upDot" hidden></span></button>
+      <button type="button" role="tab" id="tab-tree" data-tab="tree" aria-selected="false">Tree<span class="dot" id="treeDot" hidden></span></button>
       <button type="button" role="tab" id="tab-stars" data-tab="stars" aria-selected="false">Stars<span class="dot" id="starDot" hidden></span></button>
       <button type="button" role="tab" id="tab-world" data-tab="world" aria-selected="false">World</button>
     </nav>
@@ -407,7 +467,7 @@ textarea {
   </div>
   <div class="sheet-body" id="sheetBody">
     <div class="panel" id="panel-balls" role="tabpanel"></div>
-    <div class="panel" id="panel-upgrades" role="tabpanel" hidden></div>
+    <div class="panel" id="panel-tree" role="tabpanel" hidden></div>
     <div class="panel" id="panel-stars" role="tabpanel" hidden></div>
     <div class="panel" id="panel-world" role="tabpanel" hidden></div>
   </div>
@@ -432,9 +492,10 @@ textarea {
 
   PQ.DATA = {
     W, H, N: W * H,
+    GEN: 2,                                 // world generation version; saves of another version start over
     TILE: 128,                              // render tile edge, world px
     OV: 2,                                  // overview downscale factor
-    SURFACE: 220,                           // mean ground line, rows from the top
+    START: { x: W / 2, y: H / 2, r: 26 },   // the cave every world starts in, at the centre
     MAX_BALLS: 4000,
     FOG: 4,                                 // fog-of-war cell edge, world px (code shifts by 2: keep it 4)
     SIGHT: 20,                              // how far a ball lights up the rock around it, px
@@ -443,52 +504,62 @@ textarea {
     POISON: 0x80,
 
     // Cell types. hp = hits of 1 damage, val = bits paid when broken.
-    // col = base colour; the renderer derives shades from it.
+    // col = the neon colour an exposed pixel glows; colour tells hardness at a glance.
     MAT: [
       { id: 0,  key: 'air',      name: 'Air' },
-      { id: 1,  key: 'grass',    name: 'Turf',      hp: 1,   val: 1,   col: [86, 148, 70] },
-      { id: 2,  key: 'soil',     name: 'Topsoil',   hp: 1,   val: 1,   col: [122, 86, 58] },
-      { id: 3,  key: 'clay',     name: 'Clay',      hp: 3,   val: 4,   col: [168, 104, 72] },
-      { id: 4,  key: 'stone',    name: 'Stone',     hp: 8,   val: 14,  col: [118, 116, 122] },
-      { id: 5,  key: 'basalt',   name: 'Basalt',    hp: 40,  val: 60,  col: [66, 64, 78] },
-      { id: 6,  key: 'obsidian', name: 'Obsidian',  hp: 140, val: 240, col: [38, 28, 54] },
-      { id: 7,  key: 'copper',   name: 'Copper',    hp: 6,   val: 60,  col: [214, 122, 62] },
-      { id: 8,  key: 'silver',   name: 'Silver',    hp: 20,  val: 400, col: [196, 210, 222] },
-      { id: 9,  key: 'amethyst', name: 'Amethyst',  hp: 50,  val: 3000, col: [178, 92, 232] },
-      { id: 10, key: 'relic',    name: 'Relic',     hard: true,         col: [222, 200, 150] },
+      { id: 1,  key: 'moss',     name: 'Moss',      hp: 1,   val: 1,   col: [70, 230, 96] },
+      { id: 2,  key: 'lichen',   name: 'Lichen',    hp: 2,   val: 2,   col: [166, 236, 64] },
+      { id: 3,  key: 'clay',     name: 'Clay',      hp: 3,   val: 4,   col: [244, 222, 60] },
+      { id: 4,  key: 'stone',    name: 'Stone',     hp: 8,   val: 14,  col: [255, 154, 40] },
+      { id: 5,  key: 'basalt',   name: 'Basalt',    hp: 40,  val: 60,  col: [236, 64, 52] },
+      { id: 6,  key: 'obsidian', name: 'Obsidian',  hp: 140, val: 240, col: [150, 152, 164] },
+      { id: 7,  key: 'copper',   name: 'Copper',    hp: 6,   val: 60,  col: [64, 224, 228] },
+      { id: 8,  key: 'silver',   name: 'Silver',    hp: 20,  val: 400, col: [130, 176, 255] },
+      { id: 9,  key: 'amethyst', name: 'Amethyst',  hp: 50,  val: 3000, col: [168, 112, 255] },
+      { id: 10, key: 'relic',    name: 'Relic',     hard: true,         col: [236, 232, 218] },
       { id: 11, key: 'gold',     name: 'Golden Pixel', hp: 200, val: 0, col: [255, 206, 46] },
       // Deep rock: only in worlds past the first (see DEPTH). hp tops out at 255, the dmg byte.
-      { id: 12, key: 'magma',    name: 'Magma rock', hp: 210, val: 420, col: [132, 50, 32] },
-      { id: 13, key: 'adamant',  name: 'Adamant',    hp: 255, val: 700, col: [44, 74, 88] },
+      { id: 12, key: 'magma',    name: 'Ashrock',   hp: 210, val: 420, col: [206, 208, 218] },
+      { id: 13, key: 'adamant',  name: 'Adamant',   hp: 255, val: 700, col: [250, 250, 255] },
+      // Upgrade pixels glow through the dark and pay diamonds for the skill tree.
+      { id: 14, key: 'upgrade',  name: 'Upgrade pixel', hp: 24, val: 0, col: [255, 64, 224] },
     ],
-    T: { AIR: 0, GRASS: 1, SOIL: 2, CLAY: 3, STONE: 4, BASALT: 5, OBSIDIAN: 6,
-         COPPER: 7, SILVER: 8, AMETHYST: 9, RELIC: 10, GOLD: 11, MAGMA: 12, ADAMANT: 13 },
+    T: { AIR: 0, MOSS: 1, LICHEN: 2, CLAY: 3, STONE: 4, BASALT: 5, OBSIDIAN: 6,
+         COPPER: 7, SILVER: 8, AMETHYST: 9, RELIC: 10, GOLD: 11, MAGMA: 12, ADAMANT: 13, UPGRADE: 14 },
+    // Hardness tiers from the centre outward; each pixel may be one tier softer or harder.
+    TIERS: [1, 2, 3, 4, 5, 6, 12, 13],
+    TIER_AT: [0.30, 0.465, 0.65, 0.845, 1.01], // distance (0 centre .. 1 edge) where tiers 1..5 begin; same shares as the old layers
+    SPECKLE: 0.24,                              // share of pixels one tier softer, and again one harder
 
-    // Ball types. speed in world px/s, dmg per hit, cost grows by GROWTH per owned.
-    // unlock = bits earned in the current world before the type can be bought.
+    // Upgrade pixels per world and how many diamonds each pays (more far out).
+    UPGRADES: { count: 240, near: 5, dia: f => 1 + Math.floor(f) },
+
+    // Ball types. speed in world px/s, dmg per hit, cost = bits for one more.
+    // Every type but the Pebble is unlocked in the skill tree with diamonds.
     BALLS: [
-      { key: 'pebble', name: 'Pebble', color: '#e9e4d6', dmg: 1,  speed: 46,  cost: 15,     unlock: 0,
+      { key: 'pebble', name: 'Pebble', color: '#e9e4d6', dmg: 1,  speed: 46,  cost: 15,
         desc: 'Bounces around and chips whatever it hits.' },
-      { key: 'lancer', name: 'Lancer', color: '#4aa8ff', dmg: 3,  speed: 120, cost: 300,    unlock: 200,
+      { key: 'lancer', name: 'Lancer', color: '#38c8ff', dmg: 3,  speed: 120, cost: 300,
         desc: 'Only travels in straight lines. Cuts long, clean tunnels.',
-        special: { key: 'pierce', name: 'Pierce', desc: 'Keeps going through 1 more broken pixel', max: 10, base: 0, step: 1 } },
-      { key: 'bomb',   name: 'Bomb',   color: '#ff5a48', dmg: 2,  speed: 50,  cost: 2800,   unlock: 2500,
+        special: { key: 'pierce', name: 'Pierce', desc: 'Keeps going through more broken pixels', max: 6, base: 0, step: 2 } },
+      { key: 'bomb',   name: 'Bomb',   color: '#ff5a48', dmg: 2,  speed: 50,  cost: 2800,
         desc: 'Blows out a circle of pixels on impact, then recharges.',
-        special: { key: 'radius', name: 'Blast radius', desc: '+1 px blast radius', max: 10, base: 4, step: 1 } },
-      { key: 'venom',  name: 'Venom',  color: '#6fe05a', dmg: 2,  speed: 52,  cost: 40000,  unlock: 35000,
+        special: { key: 'radius', name: 'Blast radius', desc: '+2 px blast radius', max: 6, base: 4, step: 2 } },
+      { key: 'venom',  name: 'Venom',  color: '#6fe05a', dmg: 2,  speed: 52,  cost: 40000,
         desc: 'Poisons what it touches. Poison eats outward through the rock.',
-        special: { key: 'spread', name: 'Virulence', desc: 'Poison spreads further', max: 8, base: 0, step: 1 } },
-      { key: 'midas',  name: 'Midas',  color: '#ff9b2e', dmg: 4,  speed: 60,  cost: 400000, unlock: 300000,
+        special: { key: 'spread', name: 'Virulence', desc: 'Poison spreads further', max: 6, base: 0, step: 1 } },
+      { key: 'spark',  name: 'Lightning', color: '#ffe14a', dmg: 3, speed: 64, cost: 150000,
+        desc: 'Every hit throws arcs of lightning into the rock nearby.',
+        special: { key: 'arcs', name: 'Forks', desc: '+1 arc per hit', max: 6, base: 2, step: 1 } },
+      { key: 'midas',  name: 'Midas',  color: '#ff9b2e', dmg: 4,  speed: 60,  cost: 400000,
         desc: 'Every pixel it breaks pays out several times over.',
-        special: { key: 'mult', name: 'Alchemy', desc: '+1× payout', max: 12, base: 4, step: 1 } },
-      { key: 'drill',  name: 'Drill',  color: '#b46cff', dmg: 30, speed: 40,  cost: 1.2e7,  unlock: 8e6,
+        special: { key: 'mult', name: 'Alchemy', desc: '+2× payout', max: 6, base: 4, step: 2 } },
+      { key: 'drill',  name: 'Drill',  color: '#b46cff', dmg: 30, speed: 40,  cost: 1.2e7,
         desc: 'Bores straight through anything it can break in one hit.' },
-      { key: 'seeker', name: 'Seeker', color: '#37e2d6', dmg: 60, speed: 70,  cost: 2.5e8,  unlock: 1.5e8,
+      { key: 'seeker', name: 'Seeker', color: '#f4f4f4', dmg: 60, speed: 70,  cost: 2.5e8,
         desc: 'Homes in on the Golden Pixel, boring through soft rock on the way.',
-        special: { key: 'steer', name: 'Instinct', desc: 'Steers harder toward the gold', max: 8, base: 1, step: 1 } },
+        special: { key: 'steer', name: 'Instinct', desc: 'Steers harder toward the gold', max: 6, base: 1, step: 1 } },
     ],
-    // A ball type is unlocked by hand once its `unlock` bits are earned: UNLOCK_MULT x its cost,
-    // and the first ball comes with it.
     UNLOCK_MULT: 2,
     // Owning this many of a type multiplies what that type earns by MILESTONE_MULT, each time.
     MILESTONES: [10, 25, 50, 100, 200, 400, 800, 1600],
@@ -499,14 +570,17 @@ textarea {
     COST_K: 8,
     COST_EXP: 2,
 
-    // Per-ball-type upgrades: cost = ball.cost * mul * grow^level
-    BALL_UP: {
-      dmg: { name: 'Damage', mul: 6, grow: 2.6, max: 25, desc: '+60% damage' },
-      spd: { name: 'Speed',  mul: 4, grow: 2.2, max: 12, desc: '+15% speed' },
-      sp:  { mul: 10, grow: 3.0 },
+    // The skill tree, paid in diamonds from upgrade pixels. One branch per ball type:
+    // unlock it, then Damage, Speed and its special. costs[level] is the price of the next level.
+    // Unlocking also costs UNLOCK_MULT x the ball's bit price, and the first ball comes with it.
+    TREE: {
+      unlock: { pebble: 0, lancer: 1, bomb: 2, venom: 4, spark: 6, midas: 8, drill: 20, seeker: 50 },
+      dmg: { name: 'Damage', mult: 1.6, costs: [2, 3, 4, 6, 8, 11, 15, 20] },
+      spd: { name: 'Speed', step: 0.2, costs: [2, 4, 6, 9] },
+      sp:  { costs: [3, 5, 8, 12, 16, 20] },
     },
 
-    // Global upgrades
+    // Global upgrades, bought with bits.
     UP: [
       { key: 'tap',   name: 'Pickaxe',   desc: 'Tapping rock hits harder and wider.', cost: 40,    grow: 2.4, max: 40 },
       { key: 'value', name: 'Appraisal', desc: '+25% bits from every pixel.',         cost: 600,   grow: 2.9, max: 60 },
@@ -518,11 +592,12 @@ textarea {
     RADAR: { range: 2400, zone: [0, 0, 420, 150] },
 
     // Each Golden Pixel found makes the next world one level deeper.
-    // magma/adamant: depth-scaled band tops as a share of world height (they rise as depth grows).
+    // Distances are 0 at the start cave, 1 at the middle of each edge, ~1.4 in the corners.
+    // goldTop: the gold sits at least this far out. magma/adamant: where those bands begin.
     DEPTH: {
-      goldTop: d => Math.min(0.92, 0.62 + 0.06 * d),
-      magma: d => d >= 1 ? Math.max(0.70, 1.02 - 0.06 * d) : 9,
-      adamant: d => d >= 2 ? Math.max(0.82, 1.06 - 0.05 * d) : 9,
+      goldTop: d => Math.min(1.3, 1.0 + 0.04 * d),
+      magma: d => d >= 1 ? Math.max(0.95, 1.25 - 0.06 * d) : 9,
+      adamant: d => d >= 2 ? Math.max(1.08, 1.35 - 0.05 * d) : 9,
       tough: d => 1 + 0.3 * d,                 // every rock takes this many times the hits
       stars: d => 1 + Math.floor(d / 2),      // stars paid for the gold at depth d
     },
@@ -551,22 +626,12 @@ textarea {
     POISON_TICK: 0.25,      // s between poison damage passes
     POISON_CAP: 60000,      // live poisoned cells
     BOMB_COOLDOWN: 1.0,
+    SPARK_COOLDOWN: 0.35,   // s between a Lightning ball's arc bursts
+    SPARK_REACH: 14,        // px an arc can jump
     OFFLINE_RATE: 0.3,      // share of live income paid while away
     OFFLINE_CAP: 8 * 3600,  // s
     STAR_BONUS: 0.5,        // +50% value per Golden Pixel found
 
-    // Relic materials: each is a shadow -> mid -> highlight ramp. relics.js shades every
-    // relic pixel and stores (material << 5 | brightness 0..31) in the cell's dmg byte.
-    RELIC_MATS: [
-      { key: 'bone',      ramp: [[58, 46, 36], [190, 170, 134], [246, 236, 212]] },
-      { key: 'stain',     ramp: [[42, 30, 20], [128, 96, 62], [198, 166, 120]] },
-      { key: 'iron',      ramp: [[20, 22, 28], [76, 80, 90], [178, 184, 194]] },
-      { key: 'rust',      ramp: [[40, 20, 12], [138, 70, 34], [214, 134, 74]] },
-      { key: 'bronze',    ramp: [[44, 28, 14], [150, 104, 52], [238, 198, 122]] },
-      { key: 'verdigris', ramp: [[18, 48, 44], [62, 140, 120], [152, 216, 192]] },
-      { key: 'terracotta', ramp: [[60, 26, 16], [176, 88, 52], [238, 158, 110]] },
-      { key: 'fossil',    ramp: [[44, 40, 36], [140, 128, 112], [216, 206, 186]] },
-    ],
     RELIC_COUNT: 34,
   };
 })();
@@ -608,12 +673,6 @@ textarea {
     return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
   }
 
-  function vnoise1(x, s) {
-    const xi = Math.floor(x), u = smooth(x - xi);
-    const a = hash2(xi, 0, s), b = hash2(xi + 1, 0, s);
-    return a + (b - a) * u;
-  }
-
   // Low-frequency noise sampled every `step` px along a row and lerped between.
   function rowNoise(buf, y, fx, fy, s, step) {
     let prev = vnoise(0, y * fy, s);
@@ -632,59 +691,58 @@ textarea {
       cells: new Uint8Array(N),
       dmg: new Uint8Array(N),
       mined: new Uint8Array((N + 7) >> 3),
-      surface: new Int16Array(W),
       fog: new Uint8Array(FW * FH),         // 0 hidden .. 255 seen, one per FOG x FOG cell
       relicCell: new Uint8Array(FW * FH),   // relic index + 1 for fog cells that hold relic pixels
       FW, FH,
       relics: [],
       gold: { x: 0, y: 0 },
+      upgrades: [],                         // cell indexes of the upgrade pixels
       solidTotal: 0,
       minedCount: 0,
     };
   }
 
-  function prepare(w) {
-    const s = w.seed;
-    for (let x = 0; x < W; x++) {
-      w.surface[x] = Math.round(D.SURFACE
-        + (vnoise1(x / 260, s + 1) - 0.5) * 110
-        + (vnoise1(x / 48, s + 2) - 0.5) * 26
-        + (vnoise1(x / 9, s + 3) - 0.5) * 4);
-    }
-  }
+  // How far out a point is: 0 at the start cave, 1 at the middle of each edge, ~1.4 in a corner.
+  const SX = D.START.x, SY = D.START.y;
+  function reach(x, y) { return Math.hypot((x - SX) / (W / 2), (y - SY) / (H / 2)); }
+
+  function prepare() { /* nothing to precompute: the world has no surface */ }
 
   const warpBuf = new Float32Array(W), caveA = new Float32Array(W), caveB = new Float32Array(W);
 
   function genRows(w, y0, y1) {
-    const s = w.seed, cells = w.cells, surface = w.surface;
+    const s = w.seed, cells = w.cells, TI = D.TIERS, AT = D.TIER_AT, SP = D.SPECKLE;
     const magmaF = D.DEPTH.magma(w.depth), adamF = D.DEPTH.adamant(w.depth);
+    const top = adamF < 9 ? 7 : magmaF < 9 ? 6 : 5;     // hardest tier this depth has at all
+    const R0 = D.START.r;
     for (let y = y0; y < y1; y++) {
       rowNoise(warpBuf, y, 1 / 140, 1 / 140, s + 4, 16);
       rowNoise(caveA, y, 1 / 90, 1 / 55, s + 5, 8);
       rowNoise(caveB, y, 1 / 26, 1 / 26, s + 6, 4);
-      const caveThr = 0.70 - 0.05 * (y / H);
-      const row = y * W;
+      const row = y * W, dy = (y - SY) / (H / 2);
       let blk = 1;
       for (let x = 0; x < W; x++) {
         if ((x & 15) === 0) blk = hash2(x >> 4, y >> 4, s + 8);
-        const sf = surface[x];
-        let t;
-        if (y < sf) t = T.AIR;
-        else {
-          const d = y - sf;
-          if (d < 3) t = T.GRASS;
-          else {
-            const f = (y + (warpBuf[x] - 0.5) * 170) / H;
-            t = f < 0.17 ? T.SOIL : f < 0.33 ? T.CLAY : f < 0.56 ? T.STONE : f < 0.80 ? T.BASALT : T.OBSIDIAN;
-            if (f >= magmaF) t = f >= adamF ? T.ADAMANT : T.MAGMA;
-            if (d > 26) {
-              if (caveA[x] * 0.62 + caveB[x] * 0.38 > caveThr) t = T.AIR;
-              else if (blk < 0.12 && vnoise(x / 5, y / 5, s + 9) > 0.64) {
-                if (f < 0.30) t = T.COPPER;
-                else if (f < 0.60) t = blk < 0.04 ? T.SILVER : T.COPPER;
-                else t = blk < 0.015 ? T.AMETHYST : blk < 0.06 ? T.SILVER : T.COPPER;
-              }
-            }
+        const dx = (x - SX) / (W / 2), f0 = Math.sqrt(dx * dx + dy * dy);
+        // The start cave: a rough hole in the middle of everything.
+        if (f0 < 0.03 && Math.hypot(x - SX, y - SY) < R0 + (vnoise(x / 9, y / 9, s + 10) - 0.5) * 14) {
+          cells[row + x] = T.AIR; continue;
+        }
+        const f = f0 + (warpBuf[x] - 0.5) * 0.14;
+        let b = 0;
+        while (b < AT.length && f >= AT[b]) b++;
+        if (f >= magmaF) b = f >= adamF ? 7 : 6;
+        const h = hash2(x, y, s + 12);
+        if (h < SP) b = b > 0 ? b - 1 : 0;
+        else if (h > 1 - SP) b = b < top && (b < 5 || f >= magmaF - 0.04) ? b + 1 : b;
+        let t = TI[b];
+        if (f0 > 0.05) {
+          const caveThr = 0.70 - 0.05 * Math.min(1, f);
+          if (caveA[x] * 0.62 + caveB[x] * 0.38 > caveThr) t = T.AIR;
+          else if (blk < 0.12 && vnoise(x / 5, y / 5, s + 9) > 0.64) {
+            if (f < 0.55) t = T.COPPER;
+            else if (f < 0.85) t = blk < 0.04 ? T.SILVER : T.COPPER;
+            else t = blk < 0.015 ? T.AMETHYST : blk < 0.06 ? T.SILVER : T.COPPER;
           }
         }
         cells[row + x] = t;
@@ -734,23 +792,41 @@ textarea {
     w.relics = PQ.Relics.place(w, rng);
     hollowRelics(w);
 
-    // The Golden Pixel sits deep, fully buried, away from relics. Deeper worlds bury it lower.
-    const top = Math.floor(H * D.DEPTH.goldTop(w.depth));
-    for (let tries = 0; tries < 5000; tries++) {
-      const x = 60 + Math.floor(rng() * (W - 120));
-      const y = top + Math.floor(rng() * (H - 50 - top));
-      if (overlaps(w.relics, x, y, x + 1, y + 1, 12)) continue;
-      let buried = true;
-      for (let dy = -2; dy <= 2 && buried; dy++) {
+    // The Golden Pixel sits far out, fully buried, away from relics. Deeper worlds push it farther.
+    const minF = D.DEPTH.goldTop(w.depth), buriedAt = (x, y) => {
+      for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
           const t = cells[(y + dy) * W + x + dx];
-          if (t === T.AIR || t === T.RELIC) { buried = false; break; }
+          if (t === T.AIR || t === T.RELIC) return false;
         }
       }
-      if (!buried) continue;
+      return true;
+    };
+    for (let tries = 0; tries < 20000; tries++) {
+      const x = 60 + Math.floor(rng() * (W - 120));
+      const y = 50 + Math.floor(rng() * (H - 100));
+      const f = reach(x, y);
+      if (f < minF || f > 1.36) continue;
+      if (overlaps(w.relics, x, y, x + 1, y + 1, 12) || !buriedAt(x, y)) continue;
       cells[y * W + x] = T.GOLD;
       w.gold = { x, y };
       break;
+    }
+
+    // Upgrade pixels: a few close to the start, the rest anywhere in the rock.
+    const U = D.UPGRADES;
+    w.upgrades = [];
+    for (let n = 0, tries = 0; n < U.count && tries < U.count * 40; tries++) {
+      const near = n < U.near;
+      const a = rng() * Math.PI * 2, r = 0.025 + rng() * 0.05;
+      const x = near ? Math.round(SX + Math.cos(a) * r * W / 2) : Math.floor(rng() * W);
+      const y = near ? Math.round(SY + Math.sin(a) * r * H / 2) : Math.floor(rng() * H);
+      const i = y * W + x, t = cells[i];
+      if (!t || t === T.RELIC || t === T.GOLD || t === T.UPGRADE) continue;
+      if (Math.abs(x - w.gold.x) + Math.abs(y - w.gold.y) < 6) continue;
+      cells[i] = T.UPGRADE;
+      w.upgrades.push(i);
+      n++;
     }
 
     let solid = 0;
@@ -768,14 +844,15 @@ textarea {
     initFog(w);
   }
 
-  // The sky and a thin skin of ground start uncovered; everything below is fog.
+  // Everything starts dark except the start cave and a little rock around it.
   function initFog(w) {
     w.fog.fill(0);
-    for (let cx = 0; cx < FW; cx++) {
-      let sf = H;
-      for (let x = cx * 4; x < Math.min(W, cx * 4 + 4); x++) sf = Math.min(sf, w.surface[x]);
-      const rows = Math.min(FH, Math.ceil((sf + 10) / 4));
-      for (let cy = 0; cy < rows; cy++) w.fog[cy * FW + cx] = 255;
+    const R = D.START.r + 40;
+    for (let cy = Math.floor((SY - R - 8) / 4); cy <= Math.ceil((SY + R + 8) / 4); cy++) {
+      for (let cx = Math.floor((SX - R - 8) / 4); cx <= Math.ceil((SX + R + 8) / 4); cx++) {
+        const v = (R + 4 - Math.hypot(cx * 4 + 2 - SX, cy * 4 + 2 - SY)) * 32;
+        if (v > 0) w.fog[cy * FW + cx] = Math.min(255, v | 0);
+      }
     }
   }
 
@@ -831,21 +908,20 @@ textarea {
     w.minedCount = count;
   }
 
-  PQ.World = { create, prepare, genRows, finalize, generate, applyMined, initFog, fogFromMined, mulberry32, hash2, vnoise };
+  PQ.World = { create, prepare, genRows, finalize, generate, applyMined, initFog, fogFromMined, reach, mulberry32, hash2, vnoise };
 })();
 
 </script>
 <script>
-// Pixel Quarry: relics. Each one is a 2D distance field at 1 px resolution, lit as
-// a bevelled height field and textured by material. Relic cells are unbreakable;
-// their dmg byte holds the shaded tone (material << 5 | brightness 0..31).
+// Pixel Quarry: relics. Each one is a 2D distance field, drawn into the world as glowing
+// white line art: its outline, plus any inner lines the shape defines. Relic cells are
+// unbreakable. Rock sealed inside an outline is hollowed out by the world afterwards.
 (function () {
   const root = typeof window !== 'undefined' ? window : globalThis;
   const PQ = root.PQ;
   const D = PQ.DATA, T = D.T, W = D.W, H = D.H;
   const hyp = Math.hypot;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-  const M = { BONE: 0, STAIN: 1, IRON: 2, RUST: 3, BRONZE: 4, VERDI: 5, CLAY: 6, FOSSIL: 7 };
 
   // ---- distance-field primitives (negative inside) ----
   const circle = (x, y, cx, cy, r) => hyp(x - cx, y - cy) - r;
@@ -871,7 +947,7 @@ textarea {
   // ---- the relics; coordinates are px at scale 1, origin at the centre ----
   const KINDS = [
     {
-      name: 'Femur', weight: 3, hw: 78, hh: 24, bevel: 7, tilt: Math.PI, base: M.BONE,
+      name: 'Femur', weight: 3, hw: 78, hh: 24, tilt: Math.PI,
       sdf(x, y) {
         const yb = y - 4 * (1 - (x / 62) * (x / 62));            // a slight bow in the shaft
         let d = capsule(x, yb, -48, 0, 48, 0, 6.5, 7);
@@ -885,7 +961,7 @@ textarea {
       },
     },
     {
-      name: 'Spine and ribs', weight: 2, hw: 84, hh: 74, bevel: 5, tilt: 0.5, base: M.BONE,
+      name: 'Spine and ribs', weight: 2, hw: 84, hh: 74, tilt: 0.5,
       sdf(x, y) {
         let d = 1e9;
         for (let i = 0; i < 7; i++) {
@@ -910,7 +986,7 @@ textarea {
       },
     },
     {
-      name: 'Canid skull', weight: 2, hw: 74, hh: 40, bevel: 9, tilt: 0.6, base: M.BONE,
+      name: 'Canid skull', weight: 2, hw: 74, hh: 40, tilt: 0.6,
       sdf(x, y) {
         let d = ellipse(x, y, 20, -8, 40, 27);                    // braincase
         d = smin(d, circle(x, y, 52, -2, 15), 8);                 // back of the skull
@@ -932,19 +1008,17 @@ textarea {
       },
     },
     {
-      name: 'Ammonite', weight: 2, hw: 58, hh: 54, bevel: 6, tilt: Math.PI, base: M.FOSSIL,
+      name: 'Ammonite', weight: 2, hw: 58, hh: 54, tilt: Math.PI,
       sdf(x, y) { return ellipse(x, y, 0, 0, 56, 52) + 1.5 * (noise(x / 5, y / 5, 11) - 0.5); },
-      height(x, y) {
+      line(x, y) {                                               // the seam between whorls
         const r = hyp(x, y) + 0.01, th = Math.atan2(y, x);
         let f = (Math.log(r / 2.5) / 0.16 - th) / (2 * Math.PI);
         f -= Math.floor(f);
-        const tube = Math.sin(Math.PI * f);                      // each whorl is a rounded tube
-        const ribs = Math.max(0, Math.sin(th * 26 + Math.log(r) * 4));
-        return 0.3 + 0.7 * tube + 0.18 * ribs * tube;
+        return r > 4 && Math.min(f, 1 - f) * 2 * Math.PI * 0.16 * r < 0.8;   // ~1.6 px wide at any radius
       },
     },
     {
-      name: 'Iron anchor', weight: 1, hw: 60, hh: 78, bevel: 4, tilt: 0.9, base: M.IRON,
+      name: 'Iron anchor', weight: 1, hw: 60, hh: 78, tilt: 0.9,
       sdf(x, y) {
         let d = box(x, y, 0, -2, 4.5, 46, 2);                     // shank
         d = Math.min(d, ring(x, y, 0, -60, 11, 3.5));             // ring
@@ -955,7 +1029,7 @@ textarea {
       },
     },
     {
-      name: 'Bronze gear', weight: 1, hw: 50, hh: 50, bevel: 3, tilt: Math.PI, base: M.BRONZE,
+      name: 'Bronze gear', weight: 1, hw: 50, hh: 50, tilt: Math.PI,
       sdf(x, y) {
         const r = hyp(x, y), th = Math.atan2(y, x);
         const tooth = clamp((Math.cos(th * 12) + 0.15) * 2.2, 0, 1) * 7;
@@ -964,13 +1038,10 @@ textarea {
         const win = Math.max(Math.abs(r - 24) - 7.5, (Math.cos(th * 5) - 0.35) * r * 0.45);
         return Math.max(d, -win);                                  // windows between spokes
       },
-      height(x, y) {
-        const r = hyp(x, y);
-        return r > 31 || r < 14 ? 1 : 0.72;                       // raised rim and hub
-      },
+      line(x, y) { const r = hyp(x, y); return Math.abs(r - 31) < 0.8 || Math.abs(r - 15) < 0.8; },   // rim and hub
     },
     {
-      name: 'Amphora', weight: 1, hw: 40, hh: 70, bevel: 9, tilt: 1.2, base: M.CLAY,
+      name: 'Amphora', weight: 1, hw: 40, hh: 70, tilt: 1.2,
       sdf(x, y) {
         let d = ellipse(x, y, 0, 8, 29, 42);
         d = smin(d, box(x, y, 0, -40, 9, 14, 3), 8);
@@ -983,110 +1054,49 @@ textarea {
         d = smin(d, capsule(x, y, 0, 46, 0, 64, 9, 4), 6);         // foot
         return Math.max(d, -(circle(x, y, 33, -8, 15) + 4 * (noise(x / 3, y / 3, 7) - 0.5)));   // broken side
       },
-      mat(x, y) { return (y > -20 && y < -15) || (y > 17 && y < 22) || (y > 27 && y < 29) ? M.STAIN : M.CLAY; },
+      line(x, y) { return Math.abs(y + 17.5) < 0.7 || Math.abs(y - 19.5) < 0.7; },   // painted bands
     },
     {
-      name: 'Sword', weight: 1, hw: 94, hh: 20, bevel: 4, tilt: Math.PI, base: M.IRON,
+      name: 'Sword', weight: 1, hw: 94, hh: 20, tilt: Math.PI,
       sdf(x, y) {
         let d = capsule(x, y, -58, 0, 64, 0, 7, 1.2);              // blade
         d = Math.min(d, box(x, y, -62, 0, 3.5, 17, 2));            // crossguard
         d = Math.min(d, capsule(x, y, -66, 0, -82, 0, 3.2, 3.2));  // grip
         return Math.min(d, circle(x, y, -87, 0, 5.5));             // pommel
       },
-      height(x, y) { return x > -55 ? 1 - 0.4 * Math.exp(-y * y / 1.5) : 1; },   // fuller
-      mat(x) { return x < -59 ? M.BRONZE : M.IRON; },
+      line(x, y) { return x > -55 && x < 56 && Math.abs(y) < 0.6; },   // fuller
     },
     {
-      name: 'Pawprint slab', weight: 1, hw: 50, hh: 46, bevel: 5, tilt: 0.7, base: M.FOSSIL,
+      name: 'Pawprint slab', weight: 1, hw: 50, hh: 46, tilt: 0.7,
       sdf(x, y) { return box(x, y, 0, 0, 46, 42, 12) + 5 * (noise(x / 7, y / 7, 3) - 0.5); },
-      height(x, y) {
-        const dip = (cx, cy, rx, ry) => clamp(-ellipse(x, y, cx, cy, rx, ry) / 4, 0, 1);
-        const sink = Math.max(dip(0, 14, 17, 13), dip(-22, -10, 7, 9), dip(-8, -23, 7, 9),
-          dip(8, -23, 7, 9), dip(22, -10, 7, 9));
-        return 1 - 0.65 * sink;
+      line(x, y) {                                               // the paw's pads
+        const pad = (cx, cy, rx, ry) => Math.abs(ellipse(x, y, cx, cy, rx, ry)) < 0.9;
+        return pad(0, 14, 17, 13) || pad(-22, -10, 7, 9) || pad(-8, -23, 7, 9) || pad(8, -23, 7, 9) || pad(22, -10, 7, 9);
       },
     },
   ];
   const TOTAL = KINDS.reduce((a, k) => a + k.weight, 0);
 
-  // Light from the upper left, toward the viewer.
-  const LX = -0.55, LY = -0.65, LZ = 0.53;
-  const HX = LX, HY = LY, HZ = LZ + 1, HL = hyp(HX, HY, HZ);
-
-  // Rasterise one relic into the world, centred on (cx, cy), rotated by `a`, scaled by `s`.
-  // Returns its bounding box.
-  function stamp(w, kind, cx, cy, a, s, seed) {
+  // Rasterise one relic into the world as line art, centred on (cx, cy), rotated by `a`,
+  // scaled by `s`. Returns its bounding box.
+  function stamp(w, kind, cx, cy, a, s) {
     const R = Math.ceil(hyp(kind.hw, kind.hh) * s) + 2, n = 2 * R + 1;
     const x0 = cx - R, y0 = cy - R;
-    const dist = new Float32Array(n * n).fill(1e9), ht = new Float32Array(n * n), prof = new Float32Array(n * n);
-    const lxs = new Float32Array(n * n), lys = new Float32Array(n * n);
-    const ca = Math.cos(a), sa = Math.sin(a), bevel = kind.bevel * s;
-    // Coarse pass: a 4 px block whose centre is well outside the shape is skipped.
-    const B = 4, nb = Math.ceil(n / B), far = new Uint8Array(nb * nb);
-    for (let bj = 0; bj < nb; bj++) {
-      for (let bi = 0; bi < nb; bi++) {
-        const dx = bi * B + B / 2 - R, dy = bj * B + B / 2 - R;
-        far[bj * nb + bi] = kind.sdf((dx * ca + dy * sa) / s, (-dx * sa + dy * ca) / s) * s > 7 ? 1 : 0;
-      }
-    }
+    const ca = Math.cos(a), sa = Math.sin(a), LW = 1.7 * Math.max(1, s);
+    let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
     for (let j = 0; j < n; j++) {
       const y = y0 + j;
       if (y < 0 || y >= H) continue;
       for (let i = 0; i < n; i++) {
         const x = x0 + i;
-        if (x < 0 || x >= W || far[((j / B) | 0) * nb + ((i / B) | 0)]) continue;
+        if (x < 0 || x >= W) continue;
         const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
         const lx = (dx * ca + dy * sa) / s, ly = (-dx * sa + dy * ca) / s;
-        const k = j * n + i, d = kind.sdf(lx, ly) * s;
-        dist[k] = d;
-        if (d >= 0) continue;
-        const u = Math.min(1, -d / bevel), p = Math.sqrt(1 - (1 - u) * (1 - u));
-        prof[k] = p;
-        ht[k] = bevel * p * (kind.height ? kind.height(lx, ly) : 1);
-        lxs[k] = lx; lys[k] = ly;
-      }
-    }
-    let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
-    for (let j = 1; j < n - 1; j++) {
-      for (let i = 1; i < n - 1; i++) {
-        const k = j * n + i, d = dist[k];
-        if (d >= 0) continue;
-        const x = x0 + i, y = y0 + j, lx = lxs[k], ly = lys[k], p = prof[k];
-        if (-d < 5 * s && noise(lx / 10, ly / 10, seed + 41) + noise(lx / 3, ly / 3, seed + 42) * 0.35 > 0.98 + (-d / (5 * s)) * 0.12) continue;   // still buried
-        // Surface normal from the height field; light it.
-        let nx = ht[k - 1] - ht[k + 1], ny = ht[k - n] - ht[k + n], nz = 2;
-        const nl = hyp(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
-        const diff = Math.max(0, nx * LX + ny * LY + nz * LZ);
-        const nh = Math.max(0, (nx * HX + ny * HY + nz * HZ) / HL);
-
-        let m = kind.mat ? kind.mat(lx, ly) : kind.base, mul = 1;
-        const grain = PQ.World.hash2(x, y, seed + 40);
-        if (m === M.BONE) {
-          if (noise(lx / 18, ly / 18, seed + 31) * 0.7 + (1 - p) * 0.55 > 0.8) m = M.STAIN;
-          mul = 1 + (noise(lx / 2.2, ly / 2.2, seed + 32) - 0.5) * 0.22;
-          if (grain < 0.035) mul *= 0.72;                         // pores
-        } else if (m === M.IRON) {
-          if (noise(lx / 11, ly / 11, seed + 34) + (grain - 0.5) * 0.25 > 0.58) m = M.RUST;
-          mul = 1 + (noise(lx / 1.7, ly / 1.7, seed + 35) - 0.5) * 0.3;
-          if (grain < 0.07) mul *= 0.65;                          // pitting
-        } else if (m === M.BRONZE) {
-          if (noise(lx / 8, ly / 8, seed + 36) * 0.6 + (1 - p) * 0.7 > 0.72) m = M.VERDI;
-          mul = 1 + (noise(lx / 2, ly / 2, seed + 37) - 0.5) * 0.14;
-        } else if (m === M.CLAY) {
-          mul = 1 + (noise(lx / 3, ly / 3, seed + 38) - 0.5) * 0.16;
-          if (grain < 0.02) mul *= 0.8;
-        } else if (m === M.FOSSIL) {
-          mul = 1 + (noise(lx / 2.5, ly / 2.5, seed + 39) - 0.5) * 0.26 + (grain - 0.5) * 0.08;
-        }
-        if (m !== M.IRON && m !== M.RUST && Math.abs(noise(lx / 16, ly / 16, seed + 33) - 0.5) < 0.012) mul *= 0.45;   // hairline cracks
-        if (-d < 1.1) mul *= 0.55;                                // dark rim where it meets the rock
-
-        const shiny = m === M.IRON ? 0.35 : m === M.BRONZE ? 0.3 : m === M.BONE ? 0.1 : 0.04;
-        const b = (0.2 + 0.8 * diff + shiny * Math.pow(nh, 20)) * mul;
-        const tone = (m << 5) | clamp(Math.round(b * 31), 0, 31);
+        const d = kind.sdf(lx, ly) * s;
+        if (d >= 0 || (d < -LW && !(kind.line && kind.line(lx, ly)))) continue;
         const idx = y * W + x;
         w.cells[idx] = T.RELIC;
-        w.dmg[idx] = tone;
+        w.dmg[idx] = 31;
         if (x < minX) minX = x; if (x > maxX) maxX = x;
         if (y < minY) minY = y; if (y > maxY) maxY = y;
       }
@@ -1101,7 +1111,7 @@ textarea {
     return false;
   }
 
-  // Scatter D.RELIC_COUNT relics below the surface. Uses the world's rng stream.
+  // Scatter D.RELIC_COUNT relics through the rock, clear of the start cave. Uses the world's rng stream.
   function place(w, rng) {
     const list = [];
     for (let i = 0; i < D.RELIC_COUNT; i++) {
@@ -1111,9 +1121,9 @@ textarea {
       const R = Math.ceil(hyp(kind.hw, kind.hh) * s) + 2;
       for (let tries = 0; tries < 30; tries++) {
         const cx = R + 30 + Math.floor(rng() * (W - 2 * R - 60));
-        const cy = D.SURFACE + 160 + R + Math.floor(rng() * (H - D.SURFACE - 220 - 2 * R));
-        if (overlaps(list, cx - R, cy - R, cx + R, cy + R, 30)) continue;
-        const bb = stamp(w, kind, cx, cy, a, s, w.seed + i * 101);
+        const cy = R + 30 + Math.floor(rng() * (H - 2 * R - 60));
+        if (PQ.World.reach(cx, cy) < 0.16 || overlaps(list, cx - R, cy - R, cx + R, cy + R, 30)) continue;
+        const bb = stamp(w, kind, cx, cy, a, s);
         list.push({ name: kind.name, x0: cx - R, y0: cy - R, x1: cx + R, y1: cy + R, shape: bb });
         break;
       }
@@ -1121,7 +1131,147 @@ textarea {
     return list;
   }
 
-  PQ.Relics = { KINDS, M, stamp, place };
+  PQ.Relics = { KINDS, stamp, place };
+})();
+
+</script>
+<script>
+// Pixel Quarry: the story. Each depth has a chapter, split into fragments that hide in the
+// world's relics. Find a relic that carries one and the fragment goes in the Journal; go
+// deeper without finding them all and those pieces of that chapter are lost.
+(function () {
+  const root = typeof window !== 'undefined' ? window : globalThis;
+  const PQ = root.PQ;
+
+  const STORY = [
+    {
+      title: 'The Foreman’s Log',
+      fragments: [
+        'Day 1. The survey says there is nothing down here worth the diesel. The company sent us anyway. Somebody upstairs has seen a photograph.',
+        'Day 4. Hollis swears the rock glows at the edges when the lamps are off. I told him to sleep more. Then I turned my lamp off.',
+        'Day 9. Found bones in the clay. Old ones. The dog will not go near them, so I am not either.',
+        'Day 15. Every crew that worked this site before us is listed in the office binder. Every entry stops mid-sentence.',
+        'Day 22. Juno dug all night on her own. She came back with gold dust in her fur and would not eat.',
+        'Day 30. The company called. They did not ask about the gold. They asked whether we had heard it yet.',
+        'Day 31. We have heard it.',
+        'Day 38. Half the crew left. The other half started digging with their hands.',
+        'Day 40. It is one pixel. The photograph was of one pixel. All this for one.',
+        'Last entry. The floor gave way under the drill and there was another world under it, lit, waiting. I am going down. Juno went first.',
+      ],
+    },
+    {
+      title: 'The Dog Who Dug',
+      fragments: [
+        'The shepherd had one dog and the dog had one habit. Wherever they stopped, she dug.',
+        'The village laughed at the holes. Then the holes got deep enough that nobody laughed near them.',
+        'One morning the dog was gone and there was a tunnel where she had slept, straight down, as clean as a well.',
+        'The shepherd sold the flock to buy rope.',
+        'Down there the shepherd found pawprints pressed into stone that had been stone for a very long time.',
+        'Every few days, a bark. Always farther. Always lower.',
+        'The rope ran out. The shepherd kept going.',
+        'Old shepherds say a good dog finds what you lost. Nobody says what a good dog does when it finds something that was never yours.',
+        'Near the end the light came from below, gold, and the barking stopped.',
+        'They found the shepherd’s crook at the bottom of the tunnel, and beside it, a second set of footprints that walked on, deeper.',
+      ],
+    },
+    {
+      title: 'The Harbor Below',
+      fragments: [
+        'The port was rich because its lighthouse could see ships that had not yet come over the horizon.',
+        'The keeper said the light did not come from the lamp. It came up through the floor, from somewhere under the town.',
+        'Merchants paid well to know which ships were coming. Nobody asked how the keeper knew.',
+        'Wine jars began washing up in the harbor sealed and full, stamped with the name of the port, dated a hundred years ahead.',
+        'The keeper dug under the lighthouse to find the source. The town helped. The town was greedy.',
+        'They found it: one point of gold so bright it had no size.',
+        'That night the sea came in slowly, politely, like a guest.',
+        'The anchor of the last ship out was found later, miles inland, deep in the rock, pointing down.',
+        'Divers say the lighthouse is still lit, on the sea floor, under the silt.',
+        'It is pointing the way. It always was.',
+      ],
+    },
+    {
+      title: 'The Garrison',
+      fragments: [
+        'Orders: hold the pit. Let no one down. Let nothing up.',
+        'We were not told what was in the pit. Soldiers are not told things. That is what makes us soldiers.',
+        'The first winter, men began to hear their names called from below, in their mothers’ voices.',
+        'The captain ordered the pit filled. Every morning it was open again.',
+        'We drew lots for who would stand closest to the edge. I stopped drawing lots. I volunteered.',
+        'There is a light at the bottom. It is very small. It is very patient.',
+        'The relief column never came. We stopped expecting it. We stopped remembering which country sent us.',
+        'I buried my sword at the edge so whoever comes next will know someone stood here.',
+        'The last order I gave was to let them go down, if they wanted. All of them did.',
+        'I am holding the pit. I am the pit. Let no one down.',
+      ],
+    },
+    {
+      title: 'The Bone Readers',
+      fragments: [
+        'Our order reads the future in bones. The spine says how long. The ribs say how many.',
+        'Every bone we read pointed the same way. Down.',
+        'We built our temple over the place the bones pointed to and called it holy, because we were afraid to call it anything else.',
+        'The eldest reader dreamed of a gold eye opening in the dark. She did not wake.',
+        'We laid her bones out to read them. They spelled our own names.',
+        'Novices are told the eye is a god. Readers are told it is a door. The eldest knew better and said nothing.',
+        'The bones say it was here before there were bones.',
+        'We carved the eye into the doorway so it would know we were friendly. We did not know if it could tell.',
+        'The temple sank a finger’s width a year. We measured it. We prayed about it. We kept measuring.',
+        'Last reading: one gold eye, and under it, a world, and under that, another eye.',
+      ],
+    },
+    {
+      title: 'The Clockmakers',
+      fragments: [
+        'The guild was asked a simple question by a rich patron: how many pieces is the world made of?',
+        'We built a machine to count them. Ten million, it said. We built a better machine. Ten million, exactly.',
+        'Too exact. Worlds are not exact. Something had made this one.',
+        'One of the ten million would not be counted. The machine skipped it every time, the way an eye skips its own blind spot.',
+        'The gears in that part of the machine wore smooth and golden, as if something warm had been turning them from inside.',
+        'We followed the skipped piece down through the floor of the workshop.',
+        'Our best apprentice built a ball that went only in straight lines. She said curiosity should not wander.',
+        'Down there, every clock we brought stopped at the same time and started again a little later than it should.',
+        'The patron arrived to collect his answer. He was older than the guild. He thanked us and went down alone.',
+        'Count again, he wrote in the ledger, after you find it. You will find one fewer. Then one more.',
+      ],
+    },
+    {
+      title: 'Before People',
+      fragments: [
+        'Before there were diggers there was a sea, and before the sea there was dark, and in the dark, one point of gold.',
+        'Shelled things circled it for a hundred million years, spiralling their shells toward it without knowing why.',
+        'Rock settled around it like snow around a lamp post.',
+        'Green things grew on the rock where its light leaked through the cracks.',
+        'It was not waiting. Waiting is a thing people do. It was simply there, and things came.',
+        'Every creature that came close enough grew a little more curious, and its children more curious still.',
+        'The first animal to dig was not hungry. It only wanted to see.',
+        'The rock remembers every animal that tunnelled toward the light. Some of them are still in it, curled up, facing the same way.',
+        'By the time the first people arrived, the world had already been dug, filled, and dug again, many times.',
+        'The gold does not make worlds. It makes diggers. The worlds are just what diggers leave behind.',
+      ],
+    },
+    {
+      title: 'You',
+      fragments: [
+        'You are not the first. You know that now.',
+        'Every journal down here was written by someone who thought this layer was the bottom.',
+        'Every ball you send out comes back a little more like you: patient, stubborn, curious.',
+        'The relics are not lost. They were left. People leave things where they expect someone to come.',
+        'When you broke the first Golden Pixel, a world folded closed behind you. Someone is digging in it now.',
+        'The foreman, the shepherd, the keeper, the soldier, the reader, the clockmaker. They all heard it. So did you.',
+        'It does not say much. Only: deeper.',
+        'Some diggers stopped and cleared every pixel of their world first, so the next one would remember them. The next one always does.',
+        'There is no bottom. There is only the next world, and the dog who went first.',
+        'Leave something behind for whoever follows. Then go down.',
+      ],
+    },
+  ];
+
+  // The chapter for a depth. Past the last one the story starts over, retold.
+  PQ.storyChapter = function (depth) {
+    const d = Math.max(0, depth | 0), ch = STORY[d % STORY.length];
+    return d < STORY.length ? ch : { title: ch.title + ' (retold)', fragments: ch.fragments };
+  };
+  PQ.STORY = STORY;
 })();
 
 </script>
@@ -1158,12 +1308,14 @@ textarea {
     owned.pebble = 1;                       // one free ball to start
     const unlocked = { pebble: true };
     return {
-      v: 1, seed: seed >>> 0,
+      v: 2, seed: seed >>> 0,
       bits: 0, earned: 0, lifetime: 0, stars: 0,
+      dia: 0, diaFound: 0,                  // diamonds from upgrade pixels: held, and found this world
+      journal: {},                          // story fragments found, by depth: { "0": [2, 5], ... }
       depth: 0, spent: 0, perks: newPerks(),   // depth = Golden Pixels found; spent = stars spent on perks
       cleared: 0, clearMult: 1,             // share of this world dug out; bonus earned by the last one
       owned, up, unlocked, global: { tap: 0, value: 0, radar: 0 },
-      drop: { x: W / 2, y: 110 },
+      drop: { x: D.START.x, y: D.START.y }, aim: -Math.PI / 2,   // the launcher: where new balls fire from, and which way
       found: false, foundTime: 0, goldReward: 0,
       relics: [],                           // indexes of relics uncovered in this world
       playTime: 0, broken: 0, rate: 0,
@@ -1202,6 +1354,8 @@ textarea {
     this.rng = PQ.World.mulberry32((state.seed ^ 0x5bd1e995) >>> 0);
     this.relicSeen = new Set(state.relics || []);
     this.last = null;                                     // the final few rock pixels, once few are left
+    this.arcFx = [];                                      // lightning arcs for the renderer: x0, y0, x1, y1
+    this.story = storyRelics(world, state);
     this.tapping = false;
     state.cleared = Math.min(1, world.minedCount / world.solidTotal);
     this.derive();
@@ -1216,14 +1370,16 @@ textarea {
       const b = BALLS[B[key]];
       return b.special.base + b.special.step * s.up[key].sp;
     };
+    const TR = D.TREE;
     this.valueMult = (1 + 0.25 * s.global.value) * (1 + D.STAR_BONUS * s.stars) * (s.clearMult || 1);
-    this.tDmg = BALLS.map(b => Math.round(b.dmg * Math.pow(1.6, s.up[b.key].dmg)));
+    this.tDmg = BALLS.map(b => Math.round(b.dmg * Math.pow(TR.dmg.mult, s.up[b.key].dmg)));
     this.tMult = BALLS.map(b => Math.pow(D.MILESTONE_MULT, milestone(s.owned[b.key]).lv));
-    this.tSpd = BALLS.map(b => b.speed * (1 + 0.15 * s.up[b.key].spd));
+    this.tSpd = BALLS.map(b => b.speed * (1 + TR.spd.step * s.up[b.key].spd));
     this.pierceMax = BALLS.map(b => b.key === 'lancer' ? sp('lancer') : (b.key === 'drill' || b.key === 'seeker') ? 255 : 0);
     this.bombR = sp('bomb');
-    this.venomGen = 4 + 2 * s.up.venom.sp;
-    this.venomP = 0.42 + 0.03 * s.up.venom.sp;
+    this.venomGen = 4 + 2 * sp('venom');
+    this.venomP = 0.42 + 0.03 * sp('venom');
+    this.arcs = sp('spark');
     this.midas = sp('midas');
     this.steer = sp('seeker');
     this.tapDmg = Math.round(3 * Math.pow(1.6, s.global.tap));
@@ -1239,6 +1395,11 @@ textarea {
     const k = (y >> TS) * this.tilesX + (x >> TS);
     this.tileDirty[k] = 1;
     this.ovDirty[k] = 1;
+  };
+  // A broken pixel changes how its neighbours glow (exposed edges light up), up to 2 px away.
+  P.dirtyNear = function (x, y) {
+    const x0 = x < 2 ? 0 : x - 2, x1 = x > W - 3 ? W - 1 : x + 2, y0 = y < 2 ? 0 : y - 2, y1 = y > H - 3 ? H - 1 : y + 2;
+    this.dirty(x0, y0); this.dirty(x1, y0); this.dirty(x0, y1); this.dirty(x1, y1);
   };
 
   // Lift the fog in a soft-edged circle: fully clear inside r - 4, fading out to r + 4.
@@ -1282,21 +1443,29 @@ textarea {
     s.relics.push(i);
     const reward = Math.max(500, (s.rate || 0) * D.RELIC_REWARD_S) * this.relicMult;
     s.bits += reward; s.earned += reward; s.lifetime += reward;
-    this.events.push({ type: 'relic', i, name: this.w.relics[i].name, reward });
+    const frag = this.story[i];
+    let fresh = false;
+    if (frag >= 0) {
+      const got = s.journal[s.depth] || (s.journal[s.depth] = []);
+      if (!got.includes(frag)) { got.push(frag); fresh = true; }
+    }
+    this.events.push({ type: 'relic', i, name: this.w.relics[i].name, reward, frag: fresh ? frag : -1 });
   };
 
   P.spawn = function (t, x, y) {
     if (this.n >= D.MAX_BALLS) return false;
     const k = this.n++;
     this.bx[k] = x; this.by[k] = y;
+    const aim = this.s.aim;
     if (t === B.lancer) {
-      const d = Math.floor(this.rng() * 4);
-      this.vx[k] = [1, -1, 0, 0][d]; this.vy[k] = [0, 0, 1, -1][d];
+      // Mostly along the axis nearest the aim; now and then any axis, so tunnels branch.
+      const d = this.rng() < 0.7 ? (Math.round(aim / (Math.PI / 2)) & 3) : Math.floor(this.rng() * 4);
+      this.vx[k] = [1, 0, -1, 0][d]; this.vy[k] = [0, 1, 0, -1][d];
     } else if (t === B.seeker && !this.s.found) {
       const g = this.w.gold, a = Math.atan2(g.y + 0.5 - y, g.x + 0.5 - x) + (this.rng() - 0.5) * 1.8 / this.steer;
       this.vx[k] = Math.cos(a); this.vy[k] = Math.sin(a);
     } else {
-      const a = this.rng() * Math.PI * 2;
+      const a = aim + (this.rng() - 0.5) * 1.2;
       this.vx[k] = Math.cos(a); this.vy[k] = Math.sin(a);
     }
     this.bt[k] = t;
@@ -1336,12 +1505,16 @@ textarea {
     this.acc[this.src] += v;
     s.bits += v; s.earned += v; s.lifetime += v;
     s.broken++;
-    this.dirty(x, y);
+    this.dirtyNear(x, y);
     if (!this.tapping) this.reveal(x, y, 6);   // the pickaxe only works in the light, so it lights nothing
     if (w.minedCount >= w.solidTotal) this.events.push({ type: 'clear' });
     if (this.fxn < 256) { this.fxI[this.fxn] = i; this.fxT[this.fxn] = t; this.fxn++; }
     const g = w.gold;
-    if (t === T.GOLD) {
+    if (t === T.UPGRADE) {
+      const n = D.UPGRADES.dia(PQ.World.reach(x, y));
+      s.dia += n; s.diaFound += n;
+      this.events.push({ type: 'dia', n, x, y });
+    } else if (t === T.GOLD) {
       s.found = true;
       s.foundTime = s.playTime;
       s.goldReward = Math.max(5e5, s.earned * 0.5);
@@ -1412,7 +1585,25 @@ textarea {
     }
     const r = this.hit(cx, cy, this.tDmg[t], (t === B.midas ? this.midas : 1) * this.tMult[t]);
     if (t === B.venom && r === 0) this.poisonCell(cx, cy, 0);
+    if (t === B.spark && this.cd[k] <= 0) { this.cd[k] = D.SPARK_COOLDOWN; this.spark(cx, cy, this.tDmg[t], this.tMult[t]); }
     return r;
+  };
+
+  // Lightning: arcs jump from a hit to rock nearby and strike it.
+  P.spark = function (cx, cy, amount, mult) {
+    const cells = this.w.cells, R = D.SPARK_REACH;
+    for (let a = 0; a < this.arcs; a++) {
+      for (let tries = 0; tries < 6; tries++) {
+        const ang = this.rng() * Math.PI * 2, r = 3 + this.rng() * (R - 3);
+        const x = (cx + Math.cos(ang) * r) | 0, y = (cy + Math.sin(ang) * r) | 0;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const tt = cells[y * W + x] & MASK;
+        if (!tt || tt === T.RELIC) continue;
+        this.hit(x, y, amount, mult);
+        if (this.arcFx.length < 240) this.arcFx.push(cx + 0.5, cy + 0.5, x + 0.5, y + 0.5);
+        break;
+      }
+    }
   };
 
   P.moveBalls = function (dt) {
@@ -1488,14 +1679,19 @@ textarea {
   // Lit well enough to act on: the same line a relic counts as found at.
   P.seen = function (x, y) { return this.w.fog[(y >> 2) * this.w.FW + (x >> 2)] >= 160; };
 
-  // A tap on rock digs; a tap on open space moves the drop point. Both only in the light,
+  // A tap on rock digs; a tap on open space aims the launcher at it. Both only in the light,
   // so the radar ring can't be dug out by hand through the dark.
   P.tap = function (wx, wy) {
     const x = Math.floor(wx), y = Math.floor(wy);
     if (x < 0 || y < 0 || x >= W || y >= H) return null;
     if (!this.seen(x, y)) return 'dark';
     const cells = this.w.cells, t = cells[y * W + x] & MASK;
-    if (t === 0) { this.s.drop = { x: x + 0.5, y: y + 0.5 }; return 'drop'; }
+    if (t === 0) {
+      const d = this.s.drop;
+      if (Math.hypot(wx - d.x, wy - d.y) < 1) return 'aim';
+      this.s.aim = Math.atan2(wy - d.y, wx - d.x);
+      return 'aim';
+    }
     if (t === T.RELIC) return 'relic';
     const R = this.tapR;
     this.src = BALLS.length;
@@ -1512,6 +1708,14 @@ textarea {
     }
     this.tapping = false;
     return 'dig';
+  };
+
+  // Holding on open, lit space moves the launcher there.
+  P.moveLauncher = function (wx, wy) {
+    const x = Math.floor(wx), y = Math.floor(wy);
+    if (x < 0 || y < 0 || x >= W || y >= H || !this.seen(x, y) || (this.w.cells[y * W + x] & MASK)) return false;
+    this.s.drop = { x: x + 0.5, y: y + 0.5 };
+    return true;
   };
 
   // ---- clearing the world ----
@@ -1534,23 +1738,8 @@ textarea {
     }
   };
 
-  // ---- shop ----
-  // unlocked: can be bought. canUnlock: earned enough in this world, waiting to be unlocked.
+  // ---- shop: balls for bits ----
   P.unlocked = function (t) { return !!this.s.unlocked[BALLS[t].key]; };
-  P.canUnlock = function (t) { return !this.unlocked(t) && this.s.earned >= BALLS[t].unlock; };
-  P.unlockCost = function (t) { return BALLS[t].cost * D.UNLOCK_MULT * this.discount; };
-  P.unlockBall = function (t) {
-    if (!this.canUnlock(t) || this.n >= D.MAX_BALLS) return false;
-    const cost = this.unlockCost(t);
-    if (cost > this.s.bits) return false;
-    const b = BALLS[t];
-    this.s.bits -= cost;
-    this.s.unlocked[b.key] = true;
-    this.s.owned[b.key]++;
-    this.spawn(t, this.s.drop.x, this.s.drop.y);
-    this.derive();
-    return true;
-  };
   const unitCost = (b, n) => b.cost * Math.pow(1 + n / D.COST_K, D.COST_EXP);
   P.ballCost = function (t, count) {
     const b = BALLS[t], o = this.s.owned[b.key];
@@ -1581,21 +1770,40 @@ textarea {
     return count;
   };
 
-  P.ballUpMax = function (t, kind) {
-    const b = BALLS[t];
-    return kind === 'sp' ? (b.special ? b.special.max : 0) : D.BALL_UP[kind].max;
+  // ---- the skill tree, paid in diamonds ----
+  // Nodes per ball type: 'unlock', then 'dmg', 'spd' and 'sp' (its special), each with levels.
+  P.nodeKinds = function (t) { return ['unlock', 'dmg', 'spd'].concat(BALLS[t].special ? ['sp'] : []); };
+  P.nodeLevel = function (t, kind) {
+    return kind === 'unlock' ? (this.unlocked(t) ? 1 : 0) : this.s.up[BALLS[t].key][kind];
   };
-  P.ballUpCost = function (t, kind) {
-    const b = BALLS[t], U = D.BALL_UP[kind];
-    return b.cost * U.mul * Math.pow(U.grow, this.s.up[b.key][kind]);
+  P.nodeMax = function (t, kind) {
+    if (kind === 'unlock') return 1;
+    const TR = D.TREE, b = BALLS[t];
+    return kind === 'sp' ? Math.min(b.special.max, TR.sp.costs.length) : TR[kind].costs.length;
   };
-  P.buyBallUp = function (t, kind) {
-    const b = BALLS[t], lv = this.s.up[b.key];
-    if (!this.s.owned[b.key] || lv[kind] >= this.ballUpMax(t, kind)) return false;
-    const cost = this.ballUpCost(t, kind);
-    if (cost > this.s.bits) return false;
-    this.s.bits -= cost;
-    lv[kind]++;
+  P.nodeCost = function (t, kind) {
+    const lv = this.nodeLevel(t, kind);
+    if (lv >= this.nodeMax(t, kind)) return Infinity;
+    return kind === 'unlock' ? D.TREE.unlock[BALLS[t].key] : D.TREE[kind].costs[lv];
+  };
+  // Unlocking a ball type costs bits too.
+  P.nodeBits = function (t, kind) {
+    return kind === 'unlock' && !this.unlocked(t) ? BALLS[t].cost * D.UNLOCK_MULT * this.discount : 0;
+  };
+  // A node can be bought once its ball type is unlocked (or it is the unlock itself).
+  P.nodeOpen = function (t, kind) { return kind === 'unlock' || this.unlocked(t); };
+  P.canBuyNode = function (t, kind) {
+    return this.nodeOpen(t, kind) && this.nodeCost(t, kind) <= this.s.dia && this.nodeBits(t, kind) <= this.s.bits;
+  };
+  P.buyNode = function (t, kind) {
+    if (!this.canBuyNode(t, kind)) return false;
+    const cost = this.nodeCost(t, kind), b = BALLS[t];
+    this.s.dia -= cost;
+    this.s.bits -= this.nodeBits(t, kind);
+    if (kind === 'unlock') {
+      this.s.unlocked[b.key] = true;
+      if (this.n < D.MAX_BALLS) { this.s.owned[b.key]++; this.spawn(t, this.s.drop.x, this.s.drop.y); }
+    } else this.s.up[b.key][kind]++;
     this.derive();
     return true;
   };
@@ -1710,6 +1918,7 @@ textarea {
     next.spent = s.spent;
     next.perks = Object.assign(newPerks(), s.perks);
     next.lifetime = s.lifetime;
+    next.journal = s.journal || {};
     next.settings = s.settings;
     next.buyMode = s.buyMode;
     const head = perkVal(next, 'start');
@@ -1719,6 +1928,18 @@ textarea {
     next.global.value = Math.floor(s.global.value * keep);
     next.global.radar = perkVal(next, 'radar');
     return next;
+  }
+
+  // Which relics in this world carry a story fragment: a seeded pick of as many relics as the
+  // depth's chapter has fragments. Returns fragment index per relic, or -1.
+  function storyRelics(world, state) {
+    const n = world.relics.length, out = new Int8Array(n).fill(-1);
+    const ch = PQ.storyChapter ? PQ.storyChapter(state.depth) : null;
+    if (!ch) return out;
+    const order = Array.from({ length: n }, (_, i) => i), rng = PQ.World.mulberry32((world.seed ^ 0x51ed27) >>> 0);
+    for (let i = n - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = order[i]; order[i] = order[j]; order[j] = t; }
+    for (let f = 0; f < Math.min(n, ch.fragments.length); f++) out[order[f]] = f;
+    return out;
   }
 
   PQ.Sim = Sim;
@@ -1746,37 +1967,26 @@ textarea {
   const pack = (r, g, b) => ((255 << 24) | (Math.min(255, Math.max(0, b | 0)) << 16) | (Math.min(255, Math.max(0, g | 0)) << 8) | Math.min(255, Math.max(0, r | 0))) >>> 0;
   const lerp = (a, b, t) => a + (b - a) * t;
 
+  // The void: open space, and rock that is solid all round (or still unexplored).
+  const BG = pack(14, 19, 15), DEEP = pack(8, 11, 9);
+  const RELIC_COL = D.MAT[T.RELIC].col, UP_COL = pack(...D.MAT[T.UPGRADE].col);
+
+  // Exposed rock glows in its colour. index = type << 5 | poisoned << 4 | crack stage << 2 | glow
+  // glow 2 = touches open space, 1 = one pixel further in.
   function buildPalette() {
-    // index = type << 5 | poisoned << 4 | crack stage << 2 | shade
-    const pal = new Uint32Array(16 * 32);
-    const shade = [0.84, 0.93, 1.0, 1.09], crack = [1, 0.84, 0.7, 0.56];
+    const pal = new Uint32Array(16 * 32).fill(DEEP);
+    const glow = [0, 0.4, 1], crack = [1, 0.8, 0.62, 0.46];
     MAT.forEach(m => {
       if (!m.col) return;
-      for (let p = 0; p < 2; p++) for (let st = 0; st < 4; st++) for (let sh = 0; sh < 4; sh++) {
-        let [r, g, b] = m.col.map(c => c * shade[sh] * crack[st]);
-        if (p) { r = lerp(r, 70, 0.5); g = lerp(g, 230, 0.5); b = lerp(b, 80, 0.5); }
-        pal[(m.id << 5) | (p << 4) | (st << 2) | sh] = pack(r, g, b);
+      for (let p = 0; p < 2; p++) for (let st = 0; st < 4; st++) for (let gl = 1; gl < 3; gl++) {
+        let [r, g, b] = m.col.map(c => c * crack[st]);
+        if (p) { r = lerp(r, 90, 0.55); g = lerp(g, 255, 0.55); b = lerp(b, 110, 0.55); }
+        const k = glow[gl];
+        pal[(m.id << 5) | (p << 4) | (st << 2) | gl] = pack(lerp(8, r, k), lerp(11, g, k), lerp(9, b, k));
       }
     });
     return pal;
   }
-
-  // 8 relic materials x 32 brightness steps, from each material's shadow-mid-light ramp.
-  function buildRelicPalette() {
-    const pal = new Uint32Array(256);
-    D.RELIC_MATS.forEach((m, mi) => {
-      const [s, md, l] = m.ramp;
-      for (let lv = 0; lv < 32; lv++) {
-        const t = lv / 31;
-        const c = t < 0.55 ? s.map((v, k) => lerp(v, md[k], t / 0.55)) : md.map((v, k) => lerp(v, l[k], (t - 0.55) / 0.45));
-        pal[(mi << 5) | lv] = pack(c[0], c[1], c[2]);
-      }
-    });
-    return pal;
-  }
-
-  // 4x4 ordered-dither thresholds (1..255): fog edges break up into a pixel-art stipple.
-  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(b => Math.round((b + 0.5) * 16));
 
   function buildStageLUT() {
     const lut = new Uint8Array(16 * 256);
@@ -1787,15 +1997,6 @@ textarea {
     return lut;
   }
 
-  function buildShadeTex(seed) {
-    const tex = new Uint8Array(256 * 256);
-    for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
-      const h = PQ.World.hash2(x, y, seed + 99);
-      tex[(y << 8) | x] = h < 0.15 ? 0 : h < 0.55 ? 1 : h < 0.9 ? 2 : 3;
-    }
-    return tex;
-  }
-
   function Renderer(canvas, world, sim) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
@@ -1803,21 +2004,9 @@ textarea {
     this.sim = sim;
     this.pal = buildPalette();
     this.stage = buildStageLUT();
-    this.relicPal = buildRelicPalette();
-    // Unexplored rock: dark slate, coarse grain so it never reads as real strata.
-    this.fogCol = [0.8, 0.92, 1, 1.1].map(k => pack(34 * k, 31 * k, 42 * k));
-    this.shade = buildShadeTex(world.seed);
-    this.goldCol = [pack(255, 214, 64), pack(255, 236, 140), pack(255, 196, 30), pack(255, 248, 200)];
-
-    // Air: sky above the local ground line, cave below it, both shaded by depth.
-    this.sky = new Uint32Array(H);
-    this.cave = new Uint32Array(H);
-    for (let y = 0; y < H; y++) {
-      const t = Math.min(1, y / (D.SURFACE + 60));
-      this.sky[y] = pack(lerp(22, 74, t), lerp(26, 92, t), lerp(52, 128, t));
-      const d = y / H;
-      this.cave[y] = pack(lerp(26, 14, d), lerp(20, 10, d), lerp(26, 22, d));
-    }
+    this.relicCol = [];
+    for (let f = 0; f < 4; f++) this.relicCol.push(pack(...RELIC_COL.map(c => lerp(14, c, (f + 1) / 4))));
+    this.goldCol = pack(255, 214, 64);
 
     this.cache = new Map();
     this.pool = [];
@@ -1830,10 +2019,11 @@ textarea {
     this.ovImg = new ImageData(TL / OV, TL / OV);
     this.ovBuf = new Uint32Array(this.ovImg.data.buffer);
 
-    this.cam = { x: W / 2, y: D.SURFACE, z: 3 };
+    this.cam = { x: D.START.x, y: D.START.y, z: 6 };
     this.cssW = 1; this.cssH = 1; this.dpr = 1;
     this.parts = [];
     this.floats = [];
+    this.arcs = [];
     this.time = 0;
     this.particles = true;
     this.radar = 0;
@@ -1911,23 +2101,19 @@ textarea {
     return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
   };
 
-  // Is this pixel still hidden? Dithered so the edge of the fog is a stipple, not a line.
-  R.fogged = function (x, y) {
-    return this.fogAt(x, y) < BAYER[((y & 3) << 2) | (x & 3)];
-  };
-
-  R.fogColor = function (x, y) { return this.fogCol[this.shade[(((y >> 1) & 255) << 8) | ((x >> 1) & 255)]]; };
-
-  // Colour of one cell, as drawn, ignoring fog (the relic preview uses this).
-
-  R.cellColor = function (i, x, y) {
-    const c = this.w.cells[i], t = c & MASK;
-    if (!t) return y < this.w.surface[x] ? this.sky[y] : this.cave[y];
-    if (t === T.RELIC) return this.relicPal[this.w.dmg[i]];
-    if (t === T.GOLD) return this.goldColor(i, x, y);
-    const d = this.w.dmg[i];
-    const st = d ? this.stage[(t << 8) | d] : 0;
-    return this.pal[(t << 5) | ((c >> 7) << 4) | (st << 2) | this.shade[((y & 255) << 8) | (x & 255)]];
+  // How much a rock pixel glows: 2 if it touches open space, 1 if open space is one pixel
+  // further (diagonal, or two steps straight), 0 if it is solid all round.
+  R.glow = function (i, x, y) {
+    const c = this.w.cells;
+    if ((x > 0 && !(c[i - 1] & MASK)) || (x < W - 1 && !(c[i + 1] & MASK)) ||
+        (y > 0 && !(c[i - W] & MASK)) || (y < H - 1 && !(c[i + W] & MASK))) return 2;
+    if (x > 0 && y > 0 && !(c[i - W - 1] & MASK)) return 1;
+    if (x < W - 1 && y > 0 && !(c[i - W + 1] & MASK)) return 1;
+    if (x > 0 && y < H - 1 && !(c[i + W - 1] & MASK)) return 1;
+    if (x < W - 1 && y < H - 1 && !(c[i + W + 1] & MASK)) return 1;
+    if ((x > 1 && !(c[i - 2] & MASK)) || (x < W - 2 && !(c[i + 2] & MASK)) ||
+        (y > 1 && !(c[i - 2 * W] & MASK)) || (y < H - 2 && !(c[i + 2 * W] & MASK))) return 1;
+    return 0;
   };
 
   // The Golden Pixel looks like the rock around it until something touches its air.
@@ -1936,58 +2122,64 @@ textarea {
     return (x > 0 && !(cells[i - 1] & MASK)) || (x < W - 1 && !(cells[i + 1] & MASK)) ||
            (y > 0 && !(cells[i - W] & MASK)) || (y < H - 1 && !(cells[i + W] & MASK));
   };
-  R.goldColor = function (i, x, y) {
-    if (this.exposed(x, y)) return this.goldCol[0];
-    const left = this.w.cells[i - 1] & MASK;
-    const t = left && left !== T.GOLD && left !== T.RELIC ? left : T.BASALT;
-    return this.pal[(t << 5) | this.shade[((y & 255) << 8) | (x & 255)]];
+
+  // Colour of one cell as drawn. fog: 0..255 for its fog cell.
+  R.pixel = function (i, x, y, fog) {
+    const cells = this.w.cells, c = cells[i], t = c & MASK;
+    if (t === T.UPGRADE) return UP_COL;                  // seen through the dark
+    if (fog < 96) return DEEP;
+    if (!t) return BG;
+    const f = fog >= 255 ? 3 : (fog - 96) * 4 / 160 | 0;
+    if (t === T.RELIC) return this.relicCol[f];
+    let tt = t;
+    if (t === T.GOLD) {
+      if (this.exposed(x, y)) return this.goldCol;
+      const left = cells[i - 1] & MASK;
+      tt = left && left !== T.GOLD && left !== T.RELIC && left !== T.UPGRADE ? left : T.BASALT;
+    }
+    const gl = this.glow(i, x, y);
+    if (!gl) return DEEP;
+    const d = this.w.dmg[i];
+    const col = this.pal[(tt << 5) | ((c >> 7) << 4) | ((d && t !== T.GOLD ? this.stage[(tt << 8) | d] : 0) << 2) | (f < 2 && gl === 2 ? 1 : gl)];
+    return col;
   };
+
+  // Ignoring fog (the relic preview uses this).
+  R.cellColor = function (i, x, y) { return this.pixel(i, x, y, 255); };
 
   R.renderTile = function (tx, ty, ctx) {
     const x0 = tx * TL, y0 = ty * TL, w = Math.min(TL, W - x0), h = Math.min(TL, H - y0);
-    const cells = this.w.cells, dmg = this.w.dmg, surf = this.w.surface, buf = this.tileBuf;
-    const pal = this.pal, stage = this.stage, shade = this.shade, sky = this.sky, cave = this.cave, rpal = this.relicPal;
-    const fog = this.w.fog, FW = this.w.FW;
+    const buf = this.tileBuf, fog = this.w.fog, FW = this.w.FW;
     for (let yy = 0; yy < h; yy++) {
-      const y = y0 + yy, row = y * W, o = yy * TL, srow = (y & 255) << 8, frow = (y >> 2) * FW;
-      const skyC = sky[y], caveC = cave[y];
+      const y = y0 + yy, row = y * W, o = yy * TL, frow = (y >> 2) * FW;
       for (let xx = 0; xx < w; xx++) {
-        const x = x0 + xx, i = row + x;
-        if (fog[frow + (x >> 2)] !== 255 && this.fogged(x, y)) { buf[o + xx] = this.fogColor(x, y); continue; }
-        const c = cells[i], t = c & MASK;
-        if (!t) { buf[o + xx] = y < surf[x] ? skyC : caveC; continue; }
-        if (t === T.RELIC) { buf[o + xx] = rpal[dmg[i]]; continue; }
-        if (t === T.GOLD) { buf[o + xx] = this.goldColor(i, x, y); continue; }
-        const d = dmg[i];
-        buf[o + xx] = pal[(t << 5) | ((c >> 7) << 4) | ((d ? stage[(t << 8) | d] : 0) << 2) | shade[srow | (x & 255)]];
+        const x = x0 + xx;
+        buf[o + xx] = this.pixel(row + x, x, y, fog[frow + (x >> 2)]);
       }
     }
     ctx.putImageData(this.tileImg, 0, 0, 0, 0, w, h);
   };
 
+  // Overview pixels keep the brightest of the cells they cover, so thin glowing edges survive.
   R.renderOvBlock = function (tx, ty) {
     const B = TL / OV, x0 = tx * TL, y0 = ty * TL;
     const w = Math.min(B, Math.ceil((W - x0) / OV)), h = Math.min(B, Math.ceil((H - y0) / OV));
-    const buf = this.ovBuf, cells = this.w.cells, surf = this.w.surface, dmg = this.w.dmg, rpal = this.relicPal;
-    const pal = this.pal, shade = this.shade, sky = this.sky, cave = this.cave;
+    const buf = this.ovBuf, fog = this.w.fog, FW = this.w.FW;
     for (let oy = 0; oy < h; oy++) {
       for (let ox = 0; ox < w; ox++) {
-        let r = 0, g = 0, b = 0, n = 0;
+        let best = DEEP, lum = -1;
         for (let sy = 0; sy < OV; sy++) {
           const y = y0 + oy * OV + sy;
           if (y >= H) continue;
           for (let sx = 0; sx < OV; sx++) {
             const x = x0 + ox * OV + sx;
             if (x >= W) continue;
-            const i = y * W + x, cv = cells[i], t = cv & MASK;
-            const c = this.w.fog[(y >> 2) * this.w.FW + (x >> 2)] < 128 ? this.fogColor(x, y) : !t ? (y < surf[x] ? sky[y] : cave[y])
-              : t === T.RELIC ? rpal[dmg[i]]
-              : t === T.GOLD ? this.goldColor(i, x, y)
-              : pal[(t << 5) | ((cv >> 7) << 4) | shade[((y & 255) << 8) | (x & 255)]];
-            r += c & 255; g += (c >> 8) & 255; b += (c >> 16) & 255; n++;
+            const c = this.pixel(y * W + x, x, y, fog[(y >> 2) * FW + (x >> 2)]);
+            const l = (c & 255) + ((c >> 8) & 255) + ((c >> 16) & 255);
+            if (l > lum) { lum = l; best = c; }
           }
         }
-        buf[oy * B + ox] = pack(r / n, g / n, b / n);
+        buf[oy * B + ox] = best;
       }
     }
     this.ovCtx.putImageData(this.ovImg, tx * B, ty * B, 0, 0, w, h);
@@ -2030,7 +2222,7 @@ textarea {
     const toDY = wy => Math.round(((wy - c.y) * z + hh) * dpr);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = '#0b0a10';
+    ctx.fillStyle = '#080b09';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     const vx0 = Math.max(0, c.x - hw / z), vx1 = Math.min(W, c.x + hw / z);
@@ -2075,9 +2267,11 @@ textarea {
       }
     }
 
+    this.drawUpgrades(ctx, toDX, toDY, vx0, vy0, vx1, vy1);
     this.drawGold(ctx, toDX, toDY, vx0, vy0, vx1, vy1);
     this.drawParticles(ctx, dt, toDX, toDY, vx0, vy0, vx1, vy1);
     this.drawBalls(ctx, toDX, toDY, vx0, vy0, vx1, vy1);
+    this.drawArcs(ctx, dt, toDX, toDY);
     this.drawDrop(ctx, toDX, toDY);
     this.drawFloats(ctx, dt, toDX, toDY);
     if (this.radar >= 2 && !sim.s.found) this.drawZone(ctx, toDX, toDY);
@@ -2101,22 +2295,29 @@ textarea {
     ctx.stroke();
   };
 
+  // Balls are small squares with a fading streak behind them.
   R.drawBalls = function (ctx, toDX, toDY, vx0, vy0, vx1, vy1) {
-    const sim = this.sim, n = sim.n, bx = sim.bx, by = sim.by, bt = sim.bt, z = this.cam.z, dpr = this.dpr;
-    const size = Math.max(2, Math.min(7, z * 1.1)) * dpr, half = size / 2;
-    const m = 4 / z;
-    const outline = z >= 2;
+    const sim = this.sim, n = sim.n, bx = sim.bx, by = sim.by, VX = sim.vx, VY = sim.vy, bt = sim.bt, z = this.cam.z, dpr = this.dpr;
+    const size = Math.max(2, Math.min(6, z * 0.9)) * dpr, half = size / 2;
+    const m = 14 / z, trail = Math.min(10, 26 / z);    // trail length in world px: ~26 screen px, at most 10 world px
+    ctx.lineWidth = Math.max(1, size * 0.45);
+    ctx.lineCap = 'round';
     for (let t = 0; t < D.BALLS.length; t++) {
-      if (outline) {
-        ctx.fillStyle = 'rgba(8,6,12,0.75)';
-        for (let k = 0; k < n; k++) {
-          if (bt[k] !== t) continue;
-          const x = bx[k], y = by[k];
-          if (x < vx0 - m || x > vx1 + m || y < vy0 - m || y > vy1 + m) continue;
-          ctx.fillRect(toDX(x) - half - dpr, toDY(y) - half - dpr, size + 2 * dpr, size + 2 * dpr);
-        }
+      const col = D.BALLS[t].color;
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      for (let k = 0; k < n; k++) {
+        if (bt[k] !== t) continue;
+        const x = bx[k], y = by[k];
+        if (x < vx0 - m || x > vx1 + m || y < vy0 - m || y > vy1 + m) continue;
+        const len = trail * sim.tSpd[t] / 60;
+        ctx.moveTo(toDX(x - VX[k] * len), toDY(y - VY[k] * len));
+        ctx.lineTo(toDX(x), toDY(y));
       }
-      ctx.fillStyle = D.BALLS[t].color;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
       for (let k = 0; k < n; k++) {
         if (bt[k] !== t) continue;
         const x = bx[k], y = by[k];
@@ -2124,6 +2325,56 @@ textarea {
         ctx.fillRect(toDX(x) - half, toDY(y) - half, size, size);
       }
     }
+    ctx.lineCap = 'butt';
+  };
+
+  // Lightning arcs: a jagged purple line, gone in a moment.
+  R.drawArcs = function (ctx, dt, toDX, toDY) {
+    const fx = this.sim.arcFx;
+    for (let q = 0; q + 3 < fx.length; q += 4) {
+      if (this.arcs.length < 120) this.arcs.push({ x0: fx[q], y0: fx[q + 1], x1: fx[q + 2], y1: fx[q + 3], life: 0.16 });
+    }
+    fx.length = 0;
+    if (!this.arcs.length) return;
+    const dpr = this.dpr, keep = [];
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (const a of this.arcs) {
+      a.life -= dt;
+      if (a.life <= 0) continue;
+      keep.push(a);
+      const dx = a.x1 - a.x0, dy = a.y1 - a.y0, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      ctx.beginPath();
+      ctx.moveTo(toDX(a.x0), toDY(a.y0));
+      for (let k = 1; k < 4; k++) {
+        const j = (Math.random() - 0.5) * L * 0.35;
+        ctx.lineTo(toDX(a.x0 + dx * k / 4 + nx * j), toDY(a.y0 + dy * k / 4 + ny * j));
+      }
+      ctx.lineTo(toDX(a.x1), toDY(a.y1));
+      ctx.globalAlpha = Math.min(1, a.life * 8);
+      ctx.strokeStyle = '#a35cff'; ctx.lineWidth = 3 * dpr; ctx.stroke();
+      ctx.strokeStyle = '#efe0ff'; ctx.lineWidth = 1 * dpr; ctx.stroke();
+    }
+    ctx.restore();
+    this.arcs = keep;
+  };
+
+  // Upgrade pixels glow through the dark at every zoom, so they can be aimed for.
+  R.drawUpgrades = function (ctx, toDX, toDY, vx0, vy0, vx1, vy1) {
+    const list = this.w.upgrades, cells = this.w.cells, dpr = this.dpr, z = this.cam.z;
+    if (!list) return;
+    const pulse = 0.75 + 0.25 * Math.sin(this.time * 3);
+    const size = Math.max(2 * dpr, z * dpr), half = size / 2;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#ff40e0';
+    for (let q = 0; q < list.length; q++) {
+      const i = list[q];
+      if ((cells[i] & MASK) !== T.UPGRADE) continue;
+      const x = i % W, y = (i / W) | 0;
+      if (x < vx0 - 2 || x > vx1 + 2 || y < vy0 - 2 || y > vy1 + 2) continue;
+      ctx.fillRect(toDX(x + 0.5) - half, toDY(y + 0.5) - half, size, size);
+    }
+    ctx.globalAlpha = 1;
   };
 
   R.drawParticles = function (ctx, dt, toDX, toDY, vx0, vy0, vx1, vy1) {
@@ -2192,17 +2443,22 @@ textarea {
     this.floats = keep;
   };
 
+  // The launcher: a green arrow pointing where new balls fire.
   R.drawDrop = function (ctx, toDX, toDY) {
-    const d = this.sim.s.drop, dpr = this.dpr;
-    const x = toDX(d.x), y = toDY(d.y), r = 7 * dpr, gap = 3 * dpr;
-    ctx.strokeStyle = 'rgba(236,230,216,0.85)';
-    ctx.lineWidth = 1.5 * dpr;
+    const d = this.sim.s.drop, dpr = this.dpr, a = this.sim.s.aim;
+    ctx.save();
+    ctx.translate(toDX(d.x), toDY(d.y));
+    ctx.rotate(a);
+    ctx.scale(dpr, dpr);
     ctx.beginPath();
-    ctx.moveTo(x - r, y); ctx.lineTo(x - gap, y);
-    ctx.moveTo(x + gap, y); ctx.lineTo(x + r, y);
-    ctx.moveTo(x, y - r); ctx.lineTo(x, y - gap);
-    ctx.moveTo(x, y + gap); ctx.lineTo(x, y + r);
+    ctx.moveTo(13, 0); ctx.lineTo(-6, -8); ctx.lineTo(-2, 0); ctx.lineTo(-6, 8); ctx.closePath();
+    ctx.fillStyle = 'rgba(8,11,9,0.85)';
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#6dff7c';
     ctx.stroke();
+    ctx.restore();
   };
 
   // The radar's search ring: the gold is somewhere inside it.
@@ -2332,6 +2588,17 @@ textarea {
 
   // Fill in anything an older save is missing.
   function migrate(meta) {
+    if ((meta.v || 1) < 2) {
+      // The world itself changed (the neon void). Start a fresh one; keep what lasts between worlds.
+      const old = Object.assign(PQ.newState(meta.seed >>> 0), meta, { found: false, cleared: 0 });
+      old.perks = Object.assign(PQ.newPerks(), meta.perks);
+      old.global = Object.assign({ tap: 0, value: 0, radar: 0 }, meta.global);
+      old.settings = Object.assign({ particles: true }, meta.settings);
+      if (typeof meta.depth !== 'number') old.depth = old.stars || 0;
+      const s = PQ.prestige(old, meta.seed >>> 0);
+      s.rebuilt = true;
+      return s;
+    }
     const s = Object.assign(PQ.newState(meta.seed >>> 0), meta);
     s.owned = Object.assign(PQ.newState(0).owned, meta.owned);
     s.up = {};
@@ -2340,11 +2607,9 @@ textarea {
     s.settings = Object.assign({ particles: true }, meta.settings);
     s.relics = Array.isArray(meta.relics) ? meta.relics : [];
     s.perks = Object.assign(PQ.newPerks(), meta.perks);
-    if (!meta.unlocked) {                   // before unlocking by hand: anything owned is unlocked
-      s.unlocked = { pebble: true };
-      for (const b of PQ.DATA.BALLS) if (s.owned[b.key] > 0) s.unlocked[b.key] = true;
-    }
-    if (typeof meta.depth !== 'number') s.depth = s.stars || 0;   // before depth: one star per gold found
+    s.unlocked = Object.assign({ pebble: true }, meta.unlocked);
+    s.journal = Object.assign({}, meta.journal);
+    s.drop = meta.drop || { x: PQ.DATA.START.x, y: PQ.DATA.START.y };
     return s;
   }
 
@@ -2395,14 +2660,14 @@ textarea {
 
   async function worldRecord(world, sim) {
     const balls = sim.exportBalls();
-    return { seed: world.seed, mined: await pack(world.mined), fog: await pack(world.fog), balls: new Uint8Array(balls.buffer.slice(0)) };
+    return { seed: world.seed, gen: PQ.DATA.GEN, mined: await pack(world.mined), fog: await pack(world.fog), balls: new Uint8Array(balls.buffer.slice(0)) };
   }
 
   async function saveWorld(world, sim) {
     const rec = await worldRecord(world, sim);
     try { await idbPut('world', rec); return true; } catch (e) { /* fall through */ }
     try {
-      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, z: rec.mined.z, mined: b64(rec.mined.d), fog: b64(rec.fog.d), balls: b64(rec.balls) }));
+      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, gen: rec.gen, z: rec.mined.z, mined: b64(rec.mined.d), fog: b64(rec.fog.d), balls: b64(rec.balls) }));
       return true;
     } catch (e) { return false; }
   }
@@ -2413,10 +2678,10 @@ textarea {
     if (!rec) {
       try {
         const s = localStorage.getItem(WORLD_LS);
-        if (s) { const j = JSON.parse(s); rec = { seed: j.seed, mined: { z: j.z, d: unb64(j.mined) }, fog: j.fog ? { z: j.z, d: unb64(j.fog) } : null, balls: unb64(j.balls) }; }
+        if (s) { const j = JSON.parse(s); rec = { seed: j.seed, gen: j.gen, mined: { z: j.z, d: unb64(j.mined) }, fog: j.fog ? { z: j.z, d: unb64(j.fog) } : null, balls: unb64(j.balls) }; }
       } catch (e) { rec = null; }
     }
-    if (!rec || rec.seed !== seed) return null;
+    if (!rec || rec.seed !== seed || rec.gen !== PQ.DATA.GEN) return null;   // another world, or one made by older generation code
     const balls = new Float32Array(rec.balls.buffer.slice(rec.balls.byteOffset, rec.balls.byteOffset + rec.balls.byteLength));
     return { mined: await unpack(rec.mined), fog: rec.fog ? await unpack(rec.fog) : null, balls };
   }
@@ -2429,7 +2694,7 @@ textarea {
   // A text save code that can be pasted into another device.
   async function exportCode(state, world, sim) {
     const rec = await worldRecord(world, sim);
-    const body = JSON.stringify({ meta: state, z: rec.mined.z, mined: b64(rec.mined.d), fog: b64(rec.fog.d), balls: b64(rec.balls) });
+    const body = JSON.stringify({ meta: state, gen: rec.gen, z: rec.mined.z, mined: b64(rec.mined.d), fog: b64(rec.fog.d), balls: b64(rec.balls) });
     return 'PQ1:' + b64(new TextEncoder().encode(body));
   }
 
@@ -2439,9 +2704,9 @@ textarea {
     let j;
     try { j = JSON.parse(new TextDecoder().decode(unb64(text.slice(4)))); } catch (e) { throw new Error('The save code is incomplete. Copy the whole code and try again.'); }
     if (!j.meta || typeof j.meta.seed !== 'number') throw new Error('The save code has no game in it.');
-    const rec = { seed: j.meta.seed >>> 0, mined: { z: j.z, d: unb64(j.mined) }, fog: j.fog ? { z: j.z, d: unb64(j.fog) } : null, balls: unb64(j.balls) };
+    const rec = { seed: j.meta.seed >>> 0, gen: j.gen, mined: { z: j.z, d: unb64(j.mined) }, fog: j.fog ? { z: j.z, d: unb64(j.fog) } : null, balls: unb64(j.balls) };
     try { await idbPut('world', rec); } catch (e) {
-      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, z: j.z, mined: j.mined, fog: j.fog, balls: j.balls }));
+      localStorage.setItem(WORLD_LS, JSON.stringify({ seed: rec.seed, gen: j.gen, z: j.z, mined: j.mined, fog: j.fog, balls: j.balls }));
     }
     j.meta.savedAt = Date.now();
     localStorage.setItem(META, JSON.stringify(j.meta));
@@ -2489,8 +2754,23 @@ textarea {
   }
   const U = UI.prototype;
 
+  // Line icons for the skill tree, drawn in the node's colour.
+  const ICON = {
+    unlock: '<circle cx="10" cy="10" r="5"/><path d="M15 3v6M12 6h6"/>',
+    dmg: '<path d="M4 16 15 5M13 3l4 4M6 11l3 3M3 17l2-2"/>',
+    spd: '<path d="M2 7h7M1 11h8M3 15h6"/><circle cx="14" cy="11" r="4"/>',
+    pierce: '<path d="M2 10h15M13 6l4 4-4 4"/><rect x="7" y="4" width="3" height="12"/>',
+    radius: '<circle cx="10" cy="10" r="3"/><path d="M10 1v4M10 15v4M1 10h4M15 10h4M4 4l2.5 2.5M13.5 13.5 16 16M16 4l-2.5 2.5M4 16l2.5-2.5"/>',
+    spread: '<path d="M10 2c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z"/>',
+    arcs: '<path d="M11 1 4 11h5l-2 8 8-11h-5z"/>',
+    mult: '<circle cx="10" cy="10" r="7"/><path d="M7 7l6 6M13 7l-6 6"/>',
+    steer: '<circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.5"/>',
+  };
+  const icon = k => `<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
+  const nodeIcon = (b, kind) => icon(kind === 'sp' ? b.special.key : kind);
+
   U.build = function () {
-    // Balls
+    // Balls: buy more with bits. Tools below.
     $('panel-balls').innerHTML = `
       <div class="buyrow"><span>Buy amount</span>
         <div class="buymode" id="buymode" role="group" aria-label="How many to buy">
@@ -2502,34 +2782,24 @@ textarea {
           <div class="desc" id="bd-${t}">${esc(b.desc)}</div>
           <div class="prog" id="bp-${t}" hidden><i></i></div></div>
         <button type="button" class="buy" id="bb-${t}" data-act="ball" data-t="${t}"><span class="lbl">Buy</span><span class="cost">0</span></button>
+      </div>`).join('') + `<div class="group-h">Tools</div>` + D.UP.map(u => `
+      <div class="row plain" id="up-${u.key}">
+        <div><div class="name">${esc(u.name)}<span class="lv"></span></div><div class="desc"></div></div>
+        <button type="button" class="buy" data-act="up" data-key="${u.key}"><span class="lbl">Upgrade</span><span class="cost">0</span></button>
       </div>`).join('');
-    this.readySeen = new Set();
     this.mileSeen = BALLS.map(b => PQ.milestone(this.g.state.owned[b.key]).lv);
     this.clearSeen = CLEAR_MARKS.filter(m => this.g.state.cleared >= m).length;
     this.lastSeen = !!this.g.sim.last;
     this.shown = this.g.state.bits;
 
-    // Upgrades: tools first, then one group per ball type (shown once owned)
-    const toolRows = D.UP.map(u => `
-      <div class="row plain" id="up-${u.key}">
-        <div><div class="name">${esc(u.name)}<span class="lv"></span></div><div class="desc"></div></div>
-        <button type="button" class="buy" data-act="up" data-key="${u.key}"><span class="lbl">Upgrade</span><span class="cost">0</span></button>
-      </div>`).join('');
-    const ballGroups = BALLS.map((b, t) => {
-      const kinds = ['dmg', 'spd'].concat(b.special ? ['sp'] : []);
-      return `<div id="ug-${t}" hidden>
-        <div class="group-h"><span class="swatch" style="--c:${b.color}"></span>${esc(b.name)}</div>
-        ${kinds.map(k => {
-          const name = k === 'sp' ? b.special.name : D.BALL_UP[k].name;
-          const desc = k === 'sp' ? b.special.desc : D.BALL_UP[k].desc;
-          return `<div class="row plain" id="bu-${t}-${k}">
-            <div><div class="name">${esc(name)}<span class="lv"></span></div><div class="desc">${esc(desc)}</div></div>
-            <button type="button" class="buy" data-act="bup" data-t="${t}" data-kind="${k}"><span class="lbl">Upgrade</span><span class="cost">0</span></button>
-          </div>`;
-        }).join('')}
-      </div>`;
-    }).join('');
-    $('panel-upgrades').innerHTML = `<div class="group-h">Tools</div>${toolRows}${ballGroups}`;
+    // Tree: one branch per ball type, paid in diamonds.
+    if (!this.sel) this.sel = { t: 1, kind: 'unlock' };
+    $('panel-tree').innerHTML = `<div class="treecard" id="treeCard"></div><div class="tree">` + BALLS.map((b, t) => `
+      <div class="branch" id="br-${t}" style="--c:${b.color}">
+        ${this.g.sim.nodeKinds(t).map(k => `
+          <button type="button" class="node${k === 'unlock' ? ' root' : ''}" id="nd-${t}-${k}" data-act="node" data-t="${t}" data-kind="${k}" aria-label="${esc(b.name)} ${esc(this.nodeName(t, k))}">
+            ${nodeIcon(b, k)}<span class="pip"></span></button>`).join('<i class="link"></i>')}
+      </div>`).join('') + `</div><p class="note">Upgrade pixels glow magenta in the dark. Break them for ◆, then spend ◆ here.</p>`;
 
     // Stars: perks bought with stars, kept across worlds
     $('panel-stars').innerHTML = `<p class="note" id="starsNote"></p>` + D.STAR_PERKS.map(k => `
@@ -2538,6 +2808,37 @@ textarea {
         <button type="button" class="buy" data-act="perk" data-key="${k.key}"><span class="lbl">Buy</span><span class="cost">0</span></button>
       </div>`).join('');
     this.buildWorld();
+  };
+
+  U.nodeName = function (t, kind) {
+    const b = BALLS[t];
+    return kind === 'unlock' ? (t ? 'Unlock' : b.name) : kind === 'sp' ? b.special.name : D.TREE[kind].name;
+  };
+  // What a node does at a level, for the tree card: "×4", "+40%", "6 px".
+  U.nodeValue = function (t, kind, lv) {
+    const b = BALLS[t], TR = D.TREE;
+    if (kind === 'dmg') return `${fmt(b.dmg * Math.pow(TR.dmg.mult, lv))} damage`;
+    if (kind === 'spd') return `+${Math.round(TR.spd.step * lv * 100)}% speed`;
+    const v = b.special.base + b.special.step * lv;
+    return { pierce: `${v} pixels`, radius: `${v} px blast`, spread: `${4 + 2 * v} generations`, arcs: `${v} arcs`, mult: `${v}× payout`, steer: `${v}× steering` }[b.special.key];
+  };
+
+  // The card above the tree: the selected node, its next level and the buy button.
+  U.treeCard = function () {
+    const sim = this.g.sim, s = this.g.state, { t, kind } = this.sel, b = BALLS[t];
+    const lv = sim.nodeLevel(t, kind), max = sim.nodeMax(t, kind), cost = sim.nodeCost(t, kind), open = sim.nodeOpen(t, kind);
+    let body;
+    if (kind === 'unlock') body = !t ? `${esc(b.desc)} Your first ball, always unlocked.` : sim.unlocked(t) ? `${esc(b.desc)}` : `New ball. ${esc(b.desc)}`;
+    else if (lv >= max) body = `${this.nodeValue(t, kind, lv)}. Fully upgraded.`;
+    else body = `${this.nodeValue(t, kind, lv)} <b>›</b> ${this.nodeValue(t, kind, lv + 1)}`;
+    const bits = sim.nodeBits(t, kind), ok = sim.canBuyNode(t, kind);
+    const label = !open ? `Unlock ${esc(b.name)} first` : !isFinite(cost) ? (kind === 'unlock' ? 'Unlocked' : 'Maxed') : 'Buy';
+    if (bits) body += ` Also costs <b>${fmt(bits)}</b> bits.`;
+    const html = `<div class="tc-head" style="--c:${b.color}"><span class="tc-kick">${esc(b.name)}</span>
+        <span class="tc-name">${esc(this.nodeName(t, kind))}${kind !== 'unlock' ? ` <small>Lv ${lv}/${max}</small>` : ''}</span></div>
+      <p class="tc-body">${body}</p>
+      <button type="button" class="buy${ok ? ' afford' : ''}" data-act="buynode" ${ok ? '' : 'disabled'}><span class="lbl">${label}</span><span class="cost">${isFinite(cost) && open ? '◆ ' + cost : ''}</span></button>`;
+    if (html !== this.cardHtml) { this.cardHtml = html; $('treeCard').innerHTML = html; }
   };
 
   // A perk's description at a level, with its value filled in.
@@ -2550,10 +2851,10 @@ textarea {
 
   // What is new about a depth, for the toast and the World tab.
   U.depthNote = function (d) {
-    if (d <= 0) return 'The gold sits in the bottom third.';
-    const parts = [`The gold is buried deeper and rock takes ${Math.round((D.DEPTH.tough(d) - 1) * 100)}% more hits.`];
-    if (D.DEPTH.magma(d) < 2) parts.push('Magma rock fills the bottom.');
-    if (D.DEPTH.adamant(d) < 2) parts.push('Adamant lies under it.');
+    if (d <= 0) return 'The gold sits far out in the dark, toward the edges.';
+    const parts = [`The gold is buried farther out and rock takes ${Math.round((D.DEPTH.tough(d) - 1) * 100)}% more hits.`];
+    if (D.DEPTH.magma(d) < 2) parts.push('Ashrock rings the far edges.');
+    if (D.DEPTH.adamant(d) < 2) parts.push('Adamant lies past it.');
     return parts.join(' ');
   };
 
@@ -2564,6 +2865,8 @@ textarea {
       ${s.found ? `<div class="group-h">Golden Pixel found</div>
         <p class="note">Go down to depth ${s.depth + 1} and collect ${this.starWord(D.DEPTH.stars(s.depth))}. Balls and upgrades reset; stars and perks stay.</p>
         <div class="actions"><button type="button" class="btn gold" data-act="prestige">Go deeper</button></div>` : ''}
+      <div class="group-h">Journal</div>
+      ${this.journalHtml()}
       <div class="group-h">Clear bonus</div>
       <p class="note" id="clearNote"></p>
       <dl class="stats">
@@ -2631,6 +2934,35 @@ textarea {
         <button type="button" class="btn" data-act="close">Nice</button></div>`);
   };
 
+  // The story so far: this depth's chapter with gaps, earlier chapters folded away.
+  U.journalHtml = function () {
+    const s = this.g.state, out = [];
+    for (let d = s.depth; d >= 0; d--) {
+      const ch = PQ.storyChapter(d), got = (s.journal && s.journal[d]) || [];
+      const lines = ch.fragments.map((f, k) => got.includes(k) ? `<li>${esc(f)}</li>` : '<li class="gap">· · ·</li>').join('');
+      const head = `${esc(ch.title)} <small>${got.length}/${ch.fragments.length}</small>`;
+      out.push(d === s.depth
+        ? `<div class="journal"><h3>Depth ${d}: ${head}</h3><ol>${lines}</ol>${got.length ? '' : '<p class="note">Fragments of this depth\'s story hide in its relics.</p>'}</div>`
+        : `<details class="journal"><summary>Depth ${d}: ${head}</summary><ol>${lines}</ol></details>`);
+    }
+    return out.join('');
+  };
+
+  // A relic that carried a story fragment.
+  U.fragment = function (e) {
+    const s = this.g.state, ch = PQ.storyChapter(s.depth), got = s.journal[s.depth] || [];
+    this.modal(`<p class="kicker">${esc(e.name)} · fragment ${e.frag + 1} of ${ch.fragments.length}</p>
+      <h2>${esc(ch.title)}</h2>
+      <p class="story">${esc(ch.fragments[e.frag])}</p>
+      <p class="sub">${got.length} of ${ch.fragments.length} found at this depth. The rest are in the Journal, in the World tab.</p>
+      <div class="actions"><button type="button" class="btn gold" data-act="close">Keep digging</button></div>`);
+  };
+
+  U.diamond = function (e) {
+    this.g.renderer.float(e.x + 0.5, e.y + 0.5, `+${e.n} ◆`);
+    if (!this.diaSeen) { this.diaSeen = true; this.toast('Upgrade pixel! Spend ◆ in the Tree.', 3200); }
+  };
+
   U.starWord = n => `${n} star${n === 1 ? '' : 's'}`;
 
   U.bind = function () {
@@ -2665,7 +2997,7 @@ textarea {
   U.showTab = function (tab) {
     this.tab = tab;
     document.querySelectorAll('.tabs [data-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
-    ['balls', 'upgrades', 'stars', 'world'].forEach(k => { $('panel-' + k).hidden = k !== tab; });
+    ['balls', 'tree', 'stars', 'world'].forEach(k => { $('panel-' + k).hidden = k !== tab; });
     if (tab === 'world') { this.buildWorld(); }
     this.refresh();
   };
@@ -2682,8 +3014,14 @@ textarea {
     switch (b.dataset.act) {
       case 'ball': {
         const t = +b.dataset.t;
-        if (sim.canUnlock(t)) { if (sim.unlockBall(t)) this.reveal(t); }
-        else sim.buyBall(t, this.buyCount(t));
+        if (sim.unlocked(t)) sim.buyBall(t, this.buyCount(t));
+        else { this.sel = { t, kind: 'unlock' }; this.showTab('tree'); }
+        break;
+      }
+      case 'node': this.sel = { t: +b.dataset.t, kind: b.dataset.kind }; break;
+      case 'buynode': {
+        const { t, kind } = this.sel;
+        if (sim.buyNode(t, kind) && kind === 'unlock') { this.reveal(t); this.sel = { t, kind: 'dmg' }; }
         break;
       }
       case 'update': g.checkUpdate(); return;
@@ -2694,7 +3032,6 @@ textarea {
         if (sim.buyPerk(b.dataset.key) && s.global.radar > before) this.radarToast();
         break;
       }
-      case 'bup': sim.buyBallUp(+b.dataset.t, b.dataset.kind); break;
       case 'prestige': this.closeModal(); g.newWorld(true); return;
       case 'keep': this.closeModal(); this.buildWorld(); break;
       case 'close': this.closeModal(); break;
@@ -2736,14 +3073,14 @@ textarea {
   U.closeModal = function () { $('modal').hidden = true; };
 
   U.welcome = function () {
-    this.modal(`<h2>Somewhere down there is one Golden Pixel.</h2>
-      <p>This world is 10,000,000 pixels deep. Your balls bounce around and break rock, and every broken pixel pays bits.</p>
+    this.modal(`<h2>Somewhere out in the dark is one Golden Pixel.</h2>
+      <p>You start in a small cave in the middle of 10,000,000 pixels. Your balls bounce around and break rock, and every broken pixel pays bits.</p>
       <ul>
-        <li>Spend bits on more balls and upgrades.</li>
-        <li>Tap lit rock to dig it yourself. Hold to keep digging.</li>
-        <li>Tap open space to move the drop point, where new balls appear.</li>
-        <li>The dark is unexplored rock. Balls light it up as they go, and relics are buried in it.</li>
-        <li>Drag to look around. Pinch to zoom.</li>
+        <li>Spend bits on more balls. The green arrow is your launcher: new balls fire from it.</li>
+        <li>Tap open space to aim the launcher. Hold on open space to move it.</li>
+        <li>Tap glowing rock to dig it yourself. Hold to keep digging.</li>
+        <li>Magenta specks are upgrade pixels. Break them for ◆ and spend ◆ in the Tree.</li>
+        <li>Relics are buried in the dark. Some hold pieces of a story.</li>
       </ul>
       <div class="actions"><button type="button" class="btn gold" data-act="close">Start digging</button></div>`);
   };
@@ -2759,7 +3096,7 @@ textarea {
       <ul>
         <li>Damage ${fmt(sim.tDmg[t])} per hit, speed ${Math.round(sim.tSpd[t])} px/s.</li>
         ${sp}
-        <li>Your first one is free. Its upgrades are in the Upgrades tab.</li>
+        <li>Your first one comes with it. Buy more in the Balls tab; its upgrades are on its branch of the Tree.</li>
       </ul>
       <div class="actions"><button type="button" class="btn gold" data-act="release">Release it</button></div>`);
   };
@@ -2772,6 +3109,7 @@ textarea {
 
   U.relic = function (e) {
     const n = this.g.state.relics.length, total = this.g.world.relics.length;
+    if (e.frag >= 0) { this.fragment(e); return; }
     this.toast(`Relic uncovered: ${e.name} (${n}/${total}). +${fmt(e.reward)} bits`, 3200);
   };
 
@@ -2823,50 +3161,36 @@ textarea {
       }
     }
 
-    let upAffordable = false;
-    // Balls: bought, ready to unlock, the next goal (with progress), or still a mystery.
-    let unlockAffordable = false;
+    $('dia').textContent = `◆ ${s.dia}`;
+    // Balls: unlocked ones can be bought; the rest point at the Tree.
     const full = sim.n >= D.MAX_BALLS;
-    const next = BALLS.findIndex((b, t) => !sim.unlocked(t) && !sim.canUnlock(t));
+    const next = BALLS.findIndex((b, t) => !sim.unlocked(t));
     BALLS.forEach((b, t) => {
-      const ready = sim.canUnlock(t), uCost = sim.unlockCost(t);
-      if (ready) {
-        unlockAffordable = unlockAffordable || (!full && uCost <= s.bits);
-        if (!this.readySeen.has(t)) { this.readySeen.add(t); this.toast(`${b.name} is ready to unlock in the Balls tab.`, 3200); }
-      }
       if (this.tab !== 'balls') return;
-      const unlocked = sim.unlocked(t), hidden = !unlocked && !ready && t !== next;
+      const unlocked = sim.unlocked(t), hidden = !unlocked && t !== next;
       const row = $('ball-' + t);
-      row.classList.toggle('locked', !unlocked && !ready);
-      row.classList.toggle('ready', ready);
-      row.classList.toggle('mystery', hidden);
-      $('bn-' + t).textContent = hidden ? '???' : b.name;
+      row.hidden = hidden;
+      row.classList.toggle('locked', !unlocked);
       const own = s.owned[b.key], ms = PQ.milestone(own);
       $('bc-' + t).textContent = own ? `×${own.toLocaleString('en-US')}` : '';
       const prog = $('bp-' + t);
-      prog.hidden = ready || hidden || (unlocked && !ms.next);
+      prog.hidden = !unlocked || !ms.next;
       if (unlocked) {
         const inc = sim.typeRate[t], mult = sim.tMult[t];
         $('bd-' + t).textContent = `+${fmt(inc)}/s` + (mult > 1 ? ` · earns ×${fmtX(mult)}` : '')
           + (ms.next ? ` · ${ms.next} owned: ×${D.MILESTONE_MULT}` : ' · every milestone reached');
         if (ms.next) prog.firstChild.style.width = (100 * (own - ms.prev) / (ms.next - ms.prev)).toFixed(1) + '%';
-      }
-      else if (ready) $('bd-' + t).textContent = b.desc;
-      else if (hidden) $('bd-' + t).textContent = 'Keep digging to find out.';
-      else {
-        $('bd-' + t).textContent = `Earn ${fmt(b.unlock)} bits in this world: ${fmt(Math.min(s.earned, b.unlock))} so far.`;
-        prog.firstChild.style.width = (100 * Math.min(1, s.earned / b.unlock)).toFixed(1) + '%';
-      }
-      if (ready) this.setBuy($('bb-' + t), uCost, !full && uCost <= s.bits, full ? 'World full' : 'Unlock');
-      else if (unlocked) {
         const n = this.buyCount(t), cost = sim.ballCost(t, n);
         this.setBuy($('bb-' + t), cost, !full && cost <= s.bits, full ? 'World full' : `Buy ${n}`);
       } else {
-        this.setBuy($('bb-' + t), uCost, false, 'Locked');
-        if (hidden) $('bb-' + t).querySelector('.cost').textContent = '???';
+        $('bd-' + t).textContent = `${b.desc} Unlock it in the Tree: ◆ ${D.TREE.unlock[b.key]} and ${fmt(sim.nodeBits(t, 'unlock'))} bits.`;
+        const btn = $('bb-' + t);
+        btn.disabled = false;
+        btn.classList.remove('afford');
+        btn.querySelector('.lbl').textContent = 'Tree';
+        btn.querySelector('.cost').textContent = `◆ ${D.TREE.unlock[b.key]}`;
       }
     });
-    $('ballDot').hidden = !unlockAffordable || this.tab === 'balls';
     this.clearCheck();
     BALLS.forEach((b, t) => {
       const lv = PQ.milestone(s.owned[b.key]).lv;
@@ -2876,31 +3200,38 @@ textarea {
       }
     });
 
+    let toolAffordable = false;
     D.UP.forEach(u => {
       const row = $('up-' + u.key), lvl = s.global[u.key], cost = sim.upCost(u.key), maxed = lvl >= u.max;
       const ok = !maxed && cost <= s.bits;
-      upAffordable = upAffordable || ok;
-      if (this.tab !== 'upgrades') return;
+      toolAffordable = toolAffordable || ok;
+      if (this.tab !== 'balls') return;
       row.querySelector('.lv').textContent = `Lv ${lvl}${u.max < 99 ? '/' + u.max : ''}`;
       row.querySelector('.desc').textContent = Array.isArray(u.desc) ? (u.desc[Math.min(lvl, u.desc.length - 1)]) : u.desc;
       this.setBuy(row.querySelector('.buy'), maxed ? Infinity : cost, ok, maxed ? 'Done' : 'Upgrade');
     });
+    $('ballDot').hidden = !toolAffordable || this.tab === 'balls';
+
+    // Tree: node states, and the dot when anything is affordable.
+    let nodeAffordable = false;
     BALLS.forEach((b, t) => {
-      const owned = s.owned[b.key] > 0;
-      $('ug-' + t).hidden = !owned;
-      if (!owned) return;
-      ['dmg', 'spd', 'sp'].forEach(k => {
-        const row = $(`bu-${t}-${k}`);
-        if (!row) return;
-        const lvl = s.up[b.key][k], max = sim.ballUpMax(t, k), maxed = lvl >= max, cost = sim.ballUpCost(t, k);
-        const ok = !maxed && cost <= s.bits;
-        upAffordable = upAffordable || ok;
-        if (this.tab !== 'upgrades') return;
-        row.querySelector('.lv').textContent = `Lv ${lvl}/${max}`;
-        this.setBuy(row.querySelector('.buy'), maxed ? Infinity : cost, ok, maxed ? 'Done' : 'Upgrade');
+      sim.nodeKinds(t).forEach(kind => {
+        const lv = sim.nodeLevel(t, kind), max = sim.nodeMax(t, kind), cost = sim.nodeCost(t, kind), open = sim.nodeOpen(t, kind);
+        const ok = sim.canBuyNode(t, kind);
+        nodeAffordable = nodeAffordable || ok;
+        if (this.tab !== 'tree') return;
+        const el = $(`nd-${t}-${kind}`);
+        if (!el) return;
+        el.classList.toggle('have', lv > 0);
+        el.classList.toggle('maxed', lv >= max);
+        el.classList.toggle('shut', !open);
+        el.classList.toggle('afford', ok);
+        el.classList.toggle('sel', this.sel.t === t && this.sel.kind === kind);
+        el.querySelector('.pip').textContent = kind === 'unlock' ? '' : `${lv}/${max}`;
       });
     });
-    $('upDot').hidden = !upAffordable || this.tab === 'upgrades';
+    $('treeDot').hidden = !nodeAffordable || this.tab === 'tree';
+    if (this.tab === 'tree') this.treeCard();
 
     const left = sim.starsLeft();
     let perkAffordable = false;
@@ -2973,7 +3304,7 @@ textarea {
 // Pixel Quarry: boot, game loop, autosave.
 (function () {
   const PQ = window.PQ, D = PQ.DATA;
-  const BUILD = '20261024-223955';                       // build.py stamps the build time here
+  const BUILD = '20261025-000021';                       // build.py stamps the build time here
   const $ = id => document.getElementById(id);
   const canvas = $('world');
   const yieldFrame = () => new Promise(r => setTimeout(r, 0));
@@ -3021,7 +3352,7 @@ textarea {
       if (saved.fog && saved.fog.length === world.fog.length) world.fog.set(saved.fog);
       else PQ.World.fogFromMined(world);                     // save from before fog existed
     }
-    else state.drop = { x: D.W / 2, y: world.surface[D.W >> 1] - 30 };
+    else state.drop = { x: D.START.x, y: D.START.y };
 
     const sim = new PQ.Sim(world, state);
     if (saved) sim.importBalls(saved.balls);
@@ -3031,7 +3362,7 @@ textarea {
     renderer.resize();
     progress(0.65, 'Drawing the map');
     await renderer.buildOverview(f => progress(0.65 + 0.35 * f));
-    renderer.lookAtDrop(state.drop, 3);
+    renderer.lookAtDrop(state.drop, 6);
 
     Object.assign(game, { state, world, sim, renderer });
     if (game.input) game.input.r = renderer;
@@ -3048,18 +3379,23 @@ textarea {
     game.running = true;
   }
 
-  let dropHinted = false;
+  let aimHinted = false, moveHinted = false;
   function onTap(p, held) {
     const sim = game.sim;
     const x = Math.floor(p.x), y = Math.floor(p.y);
-    if (held && (x < 0 || y < 0 || x >= D.W || y >= D.H || !(game.world.cells[y * D.W + x] & D.TYPE_MASK))) return;
+    const open = x >= 0 && y >= 0 && x < D.W && y < D.H && !(game.world.cells[y * D.W + x] & D.TYPE_MASK);
+    if (held && open) {                        // hold on open space: move the launcher there
+      if (sim.moveLauncher(p.x, p.y) && !moveHinted) { moveHinted = true; game.ui.toast('Launcher moved. New balls fire from here.'); }
+      return;
+    }
+    if (held && !open && !(x >= 0 && y >= 0 && x < D.W && y < D.H)) return;
     const e0 = game.state.earned;
     const r = sim.tap(p.x, p.y);
     const gain = game.state.earned - e0;
     if (gain >= 1) game.renderer.float(p.x, p.y, '+' + PQ.fmt(gain));
     if (r === 'relic') game.ui.toast('Relics cannot be broken. Balls bounce off them.');
     if (r === 'dark' && !held) game.ui.toast('Too dark to dig there. Balls light up the rock as they go.');
-    if (r === 'drop' && !dropHinted) { dropHinted = true; game.ui.toast('Drop point moved. New balls appear here.'); }
+    if (r === 'aim' && !aimHinted) { aimHinted = true; game.ui.toast('Aimed. New balls fire this way. Hold on open space to move the launcher.', 3600); }
   }
 
   game.newWorld = async function (prestige) {
@@ -3110,6 +3446,7 @@ textarea {
     for (const e of sim.events.splice(0)) {
       if (e.type === 'gold') { game.ui.gold(); saveAll(); }
       if (e.type === 'relic') game.ui.relic(e);
+      if (e.type === 'dia') game.ui.diamond(e);
       if (e.type === 'clear') { game.ui.cleared(); saveAll(); }
     }
     game.ui.tick(dt);
@@ -3127,7 +3464,15 @@ textarea {
     const meta = PQ.Save.loadMeta();
     const state = meta ? PQ.Save.migrate(meta) : PQ.newState(newSeed());
     await boot(state, !!meta);
-    if (meta) {
+    if (meta && state.rebuilt) {
+      delete state.rebuilt;
+      PQ.Save.saveMeta(state);
+      game.ui.modal(`<p class="kicker">The quarry has changed</p>
+        <h2>A new world, in the dark.</h2>
+        <p>Pixel Quarry was rebuilt: you now start in a cave in the middle of everything, ball upgrades live in a skill tree paid with ◆ from magenta upgrade pixels, and relics hold pieces of a story.</p>
+        <p class="sub">Your old world could not come along. Your depth, stars and perks did.</p>
+        <div class="actions"><button type="button" class="btn gold" data-act="close">Start digging</button></div>`);
+    } else if (meta) {
       const away = (Date.now() - (meta.savedAt || Date.now())) / 1000;
       if (away > 60) game.ui.offline(game.sim.offline(away));
     } else {
