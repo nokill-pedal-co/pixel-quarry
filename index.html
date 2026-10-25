@@ -409,14 +409,15 @@ textarea {
   display: grid; place-items: center;
   background: #0b100c; color: var(--c);
   border: 2px solid var(--c); border-radius: 8px;
-  opacity: 0.45;
+  opacity: 0.3; filter: grayscale(0.6);
 }
+/* Only what you can buy right now is bright and glowing; owned levels are filled but quiet. */
 .node.root { border-radius: 50%; }
 .node svg { width: 24px; height: 24px; }
-.node.have, .node.afford { opacity: 1; }
-.node.have { background: color-mix(in srgb, var(--c) 16%, #0b100c); box-shadow: 0 0 10px color-mix(in srgb, var(--c) 45%, transparent); }
+.node.have { opacity: 0.6; filter: none; background: color-mix(in srgb, var(--c) 16%, #0b100c); }
+.node.afford { opacity: 1; filter: none; box-shadow: 0 0 10px color-mix(in srgb, var(--c) 45%, transparent); }
 .node.afford:not(.maxed) { animation: nodepulse 1.4s ease-in-out infinite; }
-.node.shut { opacity: 0.22; }
+.node.shut { opacity: 0.18; }
 .node.sel { outline: 2px solid var(--ink); outline-offset: 2px; }
 .node .pip {
   position: absolute; right: -4px; bottom: -6px;
@@ -436,7 +437,9 @@ textarea {
 .journal li.gap { color: var(--muted); letter-spacing: 0.3em; }
 .card p.story { font-size: 16px; line-height: 1.55; color: var(--ink); border-left: 2px solid var(--neon); padding-left: 12px; }
 @media (prefers-reduced-motion: reduce) { .node.afford:not(.maxed) { animation: none; } }
-.row.locked .buy .cost { color: var(--dia); }
+.row.locked .buy .cost { color: var(--muted); }
+.row.locked .buy.afford .cost { color: var(--dia); }
+.row.locked .buy.afford { border-color: rgba(255, 64, 224, 0.6); }
 
 </style>
 </head>
@@ -530,7 +533,7 @@ textarea {
       { id: 12, key: 'magma',    name: 'Ashrock',   hp: 210, val: 420, col: [206, 208, 218] },
       { id: 13, key: 'adamant',  name: 'Adamant',   hp: 255, val: 700, col: [250, 250, 255] },
       // Upgrade pixels glow through the dark and pay diamonds for the skill tree.
-      { id: 14, key: 'upgrade',  name: 'Upgrade pixel', hp: 24, val: 0, col: [255, 64, 224] },
+      { id: 14, key: 'upgrade',  name: 'Upgrade pixel', hp: 1, val: 0, col: [255, 64, 224] },
     ],
     T: { AIR: 0, MOSS: 1, LICHEN: 2, CLAY: 3, STONE: 4, BASALT: 5, OBSIDIAN: 6,
          COPPER: 7, SILVER: 8, AMETHYST: 9, RELIC: 10, GOLD: 11, MAGMA: 12, ADAMANT: 13, UPGRADE: 14 },
@@ -2824,7 +2827,7 @@ textarea {
         ${this.g.sim.nodeKinds(t).map(k => `
           <button type="button" class="node${k === 'unlock' ? ' root' : ''}" id="nd-${t}-${k}" data-act="node" data-t="${t}" data-kind="${k}" aria-label="${esc(b.name)} ${esc(this.nodeName(t, k))}">
             ${nodeIcon(b, k)}<span class="pip"></span></button>`).join('<i class="link"></i>')}
-      </div>`).join('') + `</div><p class="note">Upgrade pixels glow magenta in the dark. Break them for ◆, then spend ◆ here.</p>`;
+      </div>`).join('') + `</div><p class="note">Upgrade pixels glow magenta in the dark. A ball or a tap collects one for ◆; spend ◆ here.</p>`;
 
     // Stars: perks bought with stars, kept across worlds
     $('panel-stars').innerHTML = `<p class="note" id="starsNote"></p>` + D.STAR_PERKS.map(k => `
@@ -3104,7 +3107,7 @@ textarea {
         <li>Spend bits on more balls. The green arrow is your launcher: new balls fire from it.</li>
         <li>Tap open space to aim the launcher. Hold on open space to move it.</li>
         <li>Tap glowing rock to dig it yourself. Hold to keep digging.</li>
-        <li>Magenta specks are upgrade pixels. Break them for ◆ and spend ◆ in the Tree.</li>
+        <li>Magenta specks are upgrade pixels. Any ball that touches one collects ◆ for the Tree.</li>
         <li>Relics are buried in the dark. Some hold pieces of a story.</li>
       </ul>
       <div class="actions"><button type="button" class="btn gold" data-act="close">Start digging</button></div>`);
@@ -3210,8 +3213,8 @@ textarea {
       } else {
         $('bd-' + t).textContent = `${b.desc} Unlock it in the Tree: ◆ ${D.TREE.unlock[b.key]} and ${fmt(sim.nodeBits(t, 'unlock'))} bits.`;
         const btn = $('bb-' + t);
-        btn.disabled = false;
-        btn.classList.remove('afford');
+        btn.disabled = false;                  // still opens the Tree; lit only when the unlock is affordable
+        btn.classList.toggle('afford', sim.canBuyNode(t, 'unlock'));
         btn.querySelector('.lbl').textContent = 'Tree';
         btn.querySelector('.cost').textContent = `◆ ${D.TREE.unlock[b.key]}`;
       }
@@ -3329,7 +3332,7 @@ textarea {
 // Pixel Quarry: boot, game loop, autosave.
 (function () {
   const PQ = window.PQ, D = PQ.DATA;
-  const BUILD = '20261025-152640';                       // build.py stamps the build time here
+  const BUILD = '20261025-153453';                       // build.py stamps the build time here
   const $ = id => document.getElementById(id);
   const canvas = $('world');
   const yieldFrame = () => new Promise(r => setTimeout(r, 0));
