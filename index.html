@@ -360,7 +360,7 @@ textarea {
   <div class="hud-left">
     <div class="bits" id="bits" aria-live="off">0</div>
     <div class="rate" id="rate">+0 bits/s</div>
-    <div class="radar" id="radar" title="Gold radar: how close the middle of your view is to the Golden Pixel" hidden>
+    <div class="radar" id="radar" title="Gold radar: how close your nearest ball is to the Golden Pixel" hidden>
       <span class="heat"><i id="heat"></i></span>
       <span id="radarText">Cold</span>
     </div>
@@ -379,6 +379,7 @@ textarea {
     <nav class="tabs" role="tablist">
       <button type="button" role="tab" id="tab-balls" data-tab="balls" aria-selected="true">Balls</button>
       <button type="button" role="tab" id="tab-upgrades" data-tab="upgrades" aria-selected="false">Upgrades<span class="dot" id="upDot" hidden></span></button>
+      <button type="button" role="tab" id="tab-stars" data-tab="stars" aria-selected="false">Stars<span class="dot" id="starDot" hidden></span></button>
       <button type="button" role="tab" id="tab-world" data-tab="world" aria-selected="false">World</button>
     </nav>
     <button type="button" class="grip" id="grip" aria-label="Hide shop" aria-expanded="true"></button>
@@ -386,6 +387,7 @@ textarea {
   <div class="sheet-body" id="sheetBody">
     <div class="panel" id="panel-balls" role="tabpanel"></div>
     <div class="panel" id="panel-upgrades" role="tabpanel" hidden></div>
+    <div class="panel" id="panel-stars" role="tabpanel" hidden></div>
     <div class="panel" id="panel-world" role="tabpanel" hidden></div>
   </div>
 </section>
@@ -434,9 +436,12 @@ textarea {
       { id: 9,  key: 'amethyst', name: 'Amethyst',  hp: 50,  val: 3000, col: [178, 92, 232] },
       { id: 10, key: 'relic',    name: 'Relic',     hard: true,         col: [222, 200, 150] },
       { id: 11, key: 'gold',     name: 'Golden Pixel', hp: 200, val: 0, col: [255, 206, 46] },
+      // Deep rock: only in worlds past the first (see DEPTH). hp tops out at 255, the dmg byte.
+      { id: 12, key: 'magma',    name: 'Magma rock', hp: 210, val: 420, col: [132, 50, 32] },
+      { id: 13, key: 'adamant',  name: 'Adamant',    hp: 255, val: 700, col: [44, 74, 88] },
     ],
     T: { AIR: 0, GRASS: 1, SOIL: 2, CLAY: 3, STONE: 4, BASALT: 5, OBSIDIAN: 6,
-         COPPER: 7, SILVER: 8, AMETHYST: 9, RELIC: 10, GOLD: 11 },
+         COPPER: 7, SILVER: 8, AMETHYST: 9, RELIC: 10, GOLD: 11, MAGMA: 12, ADAMANT: 13 },
 
     // Ball types. speed in world px/s, dmg per hit, cost grows by GROWTH per owned.
     // unlock = bits earned in the current world before the type can be bought.
@@ -476,8 +481,37 @@ textarea {
     UP: [
       { key: 'tap',   name: 'Pickaxe',   desc: 'Tapping rock hits harder and wider.', cost: 40,    grow: 2.4, max: 40 },
       { key: 'value', name: 'Appraisal', desc: '+25% bits from every pixel.',         cost: 600,   grow: 2.9, max: 60 },
-      { key: 'radar', name: 'Gold Radar', desc: ['Shows how warm you are.', 'Adds an arrow toward the gold.', 'Shows the exact distance.'],
+      { key: 'radar', name: 'Gold Radar', desc: ['Senses the gold from your closest ball.', 'Rings a wide search zone on the map.', 'Narrows the search zone.'],
         costs: [60000, 3e6, 2e8], max: 3 },
+    ],
+    // The radar meter measures from the ball nearest the gold, so it rewards digging, not panning.
+    // Zones are rings that hold the gold somewhere inside, never at the centre.
+    RADAR: { range: 2400, zone: [0, 0, 420, 150] },
+
+    // Each Golden Pixel found makes the next world one level deeper.
+    // magma/adamant: depth-scaled band tops as a share of world height (they rise as depth grows).
+    DEPTH: {
+      goldTop: d => Math.min(0.92, 0.62 + 0.06 * d),
+      magma: d => d >= 1 ? Math.max(0.70, 1.02 - 0.06 * d) : 9,
+      adamant: d => d >= 2 ? Math.max(0.82, 1.06 - 0.05 * d) : 9,
+      tough: d => 1 + 0.3 * d,                 // every rock takes this many times the hits
+      stars: d => 1 + Math.floor(d / 2),      // stars paid for the gold at depth d
+    },
+
+    // Spent from unspent stars. Every star ever earned still pays STAR_BONUS.
+    STAR_PERKS: [
+      { key: 'start', name: 'Head Start', costs: [1, 2, 4, 7], vals: [0, 5e3, 5e4, 5e5, 5e6],
+        desc: 'Each new world starts with {v} bits.' },
+      { key: 'cheap', name: 'Bulk Deal', costs: [1, 2, 3, 4, 5], vals: [0, 0.1, 0.2, 0.3, 0.4, 0.5],
+        desc: 'Balls cost {v} less.' },
+      { key: 'tools', name: 'Heirloom Tools', costs: [2, 4], vals: [0, 0.5, 1],
+        desc: 'Keep {v} of your Pickaxe and Appraisal levels in a new world.' },
+      { key: 'radar', name: 'Prospector', costs: [1, 3, 6], vals: [0, 1, 2, 3],
+        desc: 'Every world starts with Gold Radar Lv {v}.' },
+      { key: 'night', name: 'Night Shift', costs: [1, 1, 2, 2, 3], vals: [0, 0.1, 0.2, 0.3, 0.4, 0.5],
+        desc: 'Offline earnings +{v}, and 2 h more banked per level.' },
+      { key: 'relic', name: 'Curator', costs: [1, 2, 3], vals: [1, 2, 3, 4],
+        desc: 'Relics pay {v}x.' },
     ],
 
     POISON_TICK: 0.25,      // s between poison damage passes
@@ -557,9 +591,10 @@ textarea {
     }
   }
 
-  function create(seed) {
+  function create(seed, depth) {
     return {
       W, H, N, seed: seed >>> 0,
+      depth: depth | 0,                     // worlds cleared before this one: deeper, harder rock
       cells: new Uint8Array(N),
       dmg: new Uint8Array(N),
       mined: new Uint8Array((N + 7) >> 3),
@@ -588,6 +623,7 @@ textarea {
 
   function genRows(w, y0, y1) {
     const s = w.seed, cells = w.cells, surface = w.surface;
+    const magmaF = D.DEPTH.magma(w.depth), adamF = D.DEPTH.adamant(w.depth);
     for (let y = y0; y < y1; y++) {
       rowNoise(warpBuf, y, 1 / 140, 1 / 140, s + 4, 16);
       rowNoise(caveA, y, 1 / 90, 1 / 55, s + 5, 8);
@@ -606,6 +642,7 @@ textarea {
           else {
             const f = (y + (warpBuf[x] - 0.5) * 170) / H;
             t = f < 0.17 ? T.SOIL : f < 0.33 ? T.CLAY : f < 0.56 ? T.STONE : f < 0.80 ? T.BASALT : T.OBSIDIAN;
+            if (f >= magmaF) t = f >= adamF ? T.ADAMANT : T.MAGMA;
             if (d > 26) {
               if (caveA[x] * 0.62 + caveB[x] * 0.38 > caveThr) t = T.AIR;
               else if (blk < 0.12 && vnoise(x / 5, y / 5, s + 9) > 0.64) {
@@ -634,10 +671,11 @@ textarea {
     const cells = w.cells;
     w.relics = PQ.Relics.place(w, rng);
 
-    // The Golden Pixel sits deep, fully buried, away from relics.
+    // The Golden Pixel sits deep, fully buried, away from relics. Deeper worlds bury it lower.
+    const top = Math.floor(H * D.DEPTH.goldTop(w.depth));
     for (let tries = 0; tries < 5000; tries++) {
       const x = 60 + Math.floor(rng() * (W - 120));
-      const y = Math.floor(H * 0.62 + rng() * (H * 0.38 - 50));
+      const y = top + Math.floor(rng() * (H - 50 - top));
       if (overlaps(w.relics, x, y, x + 1, y + 1, 12)) continue;
       let buried = true;
       for (let dy = -2; dy <= 2 && buried; dy++) {
@@ -1035,6 +1073,15 @@ textarea {
   const B = {};
   BALLS.forEach((b, i) => { B[b.key] = i; });
 
+  function newPerks() {
+    const p = {};
+    D.STAR_PERKS.forEach(k => { p[k.key] = 0; });
+    return p;
+  }
+  const PERK = {};
+  D.STAR_PERKS.forEach(k => { PERK[k.key] = k; });
+  const perkVal = (s, key) => PERK[key].vals[s.perks[key]];
+
   function newState(seed) {
     const owned = {}, up = {};
     BALLS.forEach(b => { owned[b.key] = 0; up[b.key] = { dmg: 0, spd: 0, sp: 0 }; });
@@ -1042,6 +1089,7 @@ textarea {
     return {
       v: 1, seed: seed >>> 0,
       bits: 0, earned: 0, lifetime: 0, stars: 0,
+      depth: 0, spent: 0, perks: newPerks(),   // depth = Golden Pixels found; spent = stars spent on perks
       owned, up, global: { tap: 0, value: 0, radar: 0 },
       drop: { x: W / 2, y: 110 },
       found: false, foundTime: 0, goldReward: 0,
@@ -1101,6 +1149,11 @@ textarea {
     this.steer = sp('seeker');
     this.tapDmg = Math.round(3 * Math.pow(1.6, s.global.tap));
     this.tapR = Math.min(10, 2 + Math.floor(s.global.tap / 3));
+    this.discount = 1 - perkVal(s, 'cheap');
+    this.offRate = D.OFFLINE_RATE + perkVal(s, 'night');
+    this.offCap = D.OFFLINE_CAP + 2 * 3600 * s.perks.night;
+    this.relicMult = perkVal(s, 'relic');
+    this.soft = 1 / D.DEPTH.tough(this.w.depth || 0);
   };
 
   P.dirty = function (x, y) {
@@ -1148,7 +1201,7 @@ textarea {
     this.relicSeen.add(i);
     const s = this.s;
     s.relics.push(i);
-    const reward = Math.max(500, (s.rate || 0) * D.RELIC_REWARD_S);
+    const reward = Math.max(500, (s.rate || 0) * D.RELIC_REWARD_S) * this.relicMult;
     s.bits += reward; s.earned += reward; s.lifetime += reward;
     this.events.push({ type: 'relic', i, name: this.w.relics[i].name, reward });
   };
@@ -1180,6 +1233,12 @@ textarea {
     if (t === 0) return 2;
     const m = MAT[t];
     if (m.hard) return -1;
+    if (this.soft < 1) {                    // deeper worlds: tougher rock, rounded at random
+      const a = amount * this.soft;
+      amount = a | 0;
+      if (this.rng() < a - amount) amount++;
+      if (!amount) return 0;
+    }
     const before = w.dmg[i], d = before + amount;
     if (d >= m.hp) { this.destroy(i, x, y, t, mult); return 1; }
     w.dmg[i] = d;
@@ -1371,13 +1430,13 @@ textarea {
     const b = BALLS[t], o = this.s.owned[b.key];
     let sum = 0;
     for (let i = 0; i < count; i++) sum += unitCost(b, o + i);
-    return sum;
+    return sum * this.discount;
   };
   P.maxBuy = function (t) {
     const b = BALLS[t], room = D.MAX_BALLS - this.n;
     let o = this.s.owned[b.key], left = this.s.bits, c = 0;
     while (c < room) {
-      const u = unitCost(b, o);
+      const u = unitCost(b, o) * this.discount;
       if (u > left) break;
       left -= u; o++; c++;
     }
@@ -1429,10 +1488,46 @@ textarea {
     return true;
   };
 
+  // ---- star perks ----
+  P.perkCost = function (key) {
+    const k = PERK[key], lvl = this.s.perks[key];
+    return lvl >= k.costs.length ? Infinity : k.costs[lvl];
+  };
+  P.starsLeft = function () { return this.s.stars - this.s.spent; };
+  P.buyPerk = function (key) {
+    const cost = this.perkCost(key);
+    if (cost > this.starsLeft()) return false;
+    this.s.spent += cost;
+    this.s.perks[key]++;
+    if (key === 'radar') this.s.global.radar = Math.max(this.s.global.radar, perkVal(this.s, 'radar'));
+    this.derive();
+    return true;
+  };
+
+  // ---- radar ----
+  // Distance from the gold to the nearest ball: what the radar meter reads.
+  P.goldDistance = function () {
+    const g = this.w.gold, gx = g.x + 0.5, gy = g.y + 0.5;
+    let best = Infinity;
+    for (let k = 0; k < this.n; k++) {
+      const dx = this.bx[k] - gx, dy = this.by[k] - gy, d = dx * dx + dy * dy;
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
+  };
+  // The search ring for a radar level, or null. Fixed per world and level, off-centre.
+  P.radarZone = function (level) {
+    const r = D.RADAR.zone[Math.min(level, D.RADAR.zone.length - 1)];
+    if (!r) return null;
+    const g = this.w.gold, h = PQ.World.hash2;
+    const a = h(level, 1, this.w.seed) * Math.PI * 2, m = Math.sqrt(h(level, 2, this.w.seed)) * 0.7 * r;
+    return { x: g.x + Math.cos(a) * m, y: g.y + Math.sin(a) * m, r };
+  };
+
   // Bits paid for time away, at a share of the last measured income.
   P.offline = function (seconds) {
-    const sec = Math.min(Math.max(0, seconds), D.OFFLINE_CAP);
-    const gain = sec * (this.s.rate || 0) * D.OFFLINE_RATE;
+    const sec = Math.min(Math.max(0, seconds), this.offCap);
+    const gain = sec * (this.s.rate || 0) * this.offRate;
     this.s.bits += gain; this.s.earned += gain; this.s.lifetime += gain;
     return { seconds: sec, gain };
   };
@@ -1470,19 +1565,30 @@ textarea {
     });
   };
 
-  // State for the next world after finding the Golden Pixel.
+  // State for the next world. Finding the gold pays stars and makes the next world deeper;
+  // starting over without it keeps both as they were. Star perks apply here.
   function prestige(s, seed) {
     const next = newState(seed);
-    next.stars = s.stars + (s.found ? 1 : 0);
+    next.depth = s.depth + (s.found ? 1 : 0);
+    next.stars = s.stars + (s.found ? D.DEPTH.stars(s.depth) : 0);
+    next.spent = s.spent;
+    next.perks = Object.assign(newPerks(), s.perks);
     next.lifetime = s.lifetime;
     next.settings = s.settings;
     next.buyMode = s.buyMode;
+    const head = perkVal(next, 'start');
+    next.bits = next.earned = head;
+    const keep = perkVal(next, 'tools');
+    next.global.tap = Math.floor(s.global.tap * keep);
+    next.global.value = Math.floor(s.global.value * keep);
+    next.global.radar = perkVal(next, 'radar');
     return next;
   }
 
   PQ.Sim = Sim;
   PQ.newState = newState;
   PQ.prestige = prestige;
+  PQ.newPerks = newPerks;
   PQ.BALL = B;
 })();
 
@@ -1834,7 +1940,7 @@ textarea {
     this.drawParticles(ctx, dt, toDX, toDY, vx0, vy0, vx1, vy1);
     this.drawBalls(ctx, toDX, toDY, vx0, vy0, vx1, vy1);
     this.drawDrop(ctx, toDX, toDY);
-    if (this.radar >= 2 && !sim.s.found) this.drawArrow(ctx);
+    if (this.radar >= 2 && !sim.s.found) this.drawZone(ctx, toDX, toDY);
   };
 
   R.drawBalls = function (ctx, toDX, toDY, vx0, vy0, vx1, vy1) {
@@ -1914,27 +2020,19 @@ textarea {
     ctx.stroke();
   };
 
-  // Points from the open band's centre toward the gold, pinned inside that band.
-  R.drawArrow = function (ctx) {
-    const g = this.w.gold, c = this.cam, dpr = this.dpr, f = this.focus();
-    const dx = g.x + 0.5 - f.x, dy = g.y + 0.5 - f.y;
-    const L = Math.hypot(dx, dy);
-    const hw = this.cssW / 2 - 26, hh = Math.max(20, (this.safeBottom - this.safeTop) / 2 - 26);
-    if (Math.abs(dx * c.z) < hw && Math.abs(dy * c.z) < hh) return;      // gold is on screen
-    const ux = dx / L, uy = dy / L;
-    const s = Math.min(hw / Math.abs(ux || 1e-6), hh / Math.abs(uy || 1e-6));
-    const px = (this.cssW / 2 + ux * s) * dpr, py = ((this.safeTop + this.safeBottom) / 2 + uy * s) * dpr;
-    const a = Math.atan2(uy, ux), r = 12 * dpr;
+  // The radar's search ring: the gold is somewhere inside it.
+  R.drawZone = function (ctx, toDX, toDY) {
+    const zn = this.sim.radarZone(this.radar), dpr = this.dpr;
+    if (!zn) return;
+    const cx = toDX(zn.x), cy = toDY(zn.y), r = zn.r * this.cam.z * dpr;
     ctx.save();
-    ctx.translate(px, py);
-    ctx.rotate(a);
-    ctx.fillStyle = '#ffd640';
-    ctx.strokeStyle = '#0b0a10';
     ctx.lineWidth = 2 * dpr;
-    ctx.beginPath();
-    ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.7); ctx.lineTo(-r * 0.3, 0); ctx.lineTo(-r * 0.7, -r * 0.7);
-    ctx.closePath();
-    ctx.stroke(); ctx.fill();
+    ctx.setLineDash([7 * dpr, 6 * dpr]);
+    ctx.lineDashOffset = -this.time * 8 * dpr;
+    ctx.strokeStyle = 'rgba(11,10,16,0.7)';
+    ctx.beginPath(); ctx.arc(cx, cy, r + dpr, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,214,64,0.85)';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
   };
 
@@ -2056,6 +2154,8 @@ textarea {
     s.global = Object.assign({ tap: 0, value: 0, radar: 0 }, meta.global);
     s.settings = Object.assign({ particles: true }, meta.settings);
     s.relics = Array.isArray(meta.relics) ? meta.relics : [];
+    s.perks = Object.assign(PQ.newPerks(), meta.perks);
+    if (typeof meta.depth !== 'number') s.depth = s.stars || 0;   // before depth: one star per gold found
     return s;
   }
 
@@ -2231,7 +2331,31 @@ textarea {
       </div>`;
     }).join('');
     $('panel-upgrades').innerHTML = `<div class="group-h">Tools</div>${toolRows}${ballGroups}`;
+
+    // Stars: perks bought with stars, kept across worlds
+    $('panel-stars').innerHTML = `<p class="note" id="starsNote"></p>` + D.STAR_PERKS.map(k => `
+      <div class="row plain" id="pk-${k.key}">
+        <div><div class="name">${esc(k.name)}<span class="lv"></span></div><div class="desc"></div></div>
+        <button type="button" class="buy" data-act="perk" data-key="${k.key}"><span class="lbl">Buy</span><span class="cost">0</span></button>
+      </div>`).join('');
     this.buildWorld();
+  };
+
+  // A perk's description at a level, with its value filled in.
+  function perkText(k, lvl) {
+    const v = k.vals[Math.min(lvl, k.vals.length - 1)];
+    const shown = k.key === 'start' ? fmt(v) : k.key === 'cheap' || k.key === 'night' ? Math.round(v * 100) + '%'
+      : k.key === 'tools' ? (v >= 1 ? 'all' : Math.round(v * 100) + '%') : v;
+    return k.desc.replace('{v}', shown);
+  }
+
+  // What is new about a depth, for the toast and the World tab.
+  U.depthNote = function (d) {
+    if (d <= 0) return 'The gold sits in the bottom third.';
+    const parts = [`The gold is buried deeper and rock takes ${Math.round((D.DEPTH.tough(d) - 1) * 100)}% more hits.`];
+    if (D.DEPTH.magma(d) < 2) parts.push('Magma rock fills the bottom.');
+    if (D.DEPTH.adamant(d) < 2) parts.push('Adamant lies under it.');
+    return parts.join(' ');
   };
 
   U.buildWorld = function () {
@@ -2239,12 +2363,13 @@ textarea {
     const c = this.confirm;
     $('panel-world').innerHTML = `
       ${s.found ? `<div class="group-h">Golden Pixel found</div>
-        <p class="note">Start a fresh world with ${s.stars + 1} star${s.stars ? 's' : ''}. Each star pays +${D.STAR_BONUS * 100}% bits for good. Balls and upgrades reset.</p>
-        <div class="actions"><button type="button" class="btn gold" data-act="prestige">Start a new world</button></div>` : ''}
+        <p class="note">Go down to depth ${s.depth + 1} and collect ${this.starWord(D.DEPTH.stars(s.depth))}. Balls and upgrades reset; stars and perks stay.</p>
+        <div class="actions"><button type="button" class="btn gold" data-act="prestige">Go deeper</button></div>` : ''}
       <dl class="stats">
         <div><dt>Pixels broken</dt><dd id="st-broken">0</dd></div>
         <div><dt>World mined</dt><dd id="st-mined">0%</dd></div>
         <div><dt>Time here</dt><dd id="st-time">0m</dd></div>
+        <div><dt>Depth</dt><dd id="st-depth">0</dd></div>
         <div><dt>Stars</dt><dd id="st-stars">0</dd></div>
         <div><dt>Earned here</dt><dd id="st-earned">0</dd></div>
         <div><dt>Earned ever</dt><dd id="st-life">0</dd></div>
@@ -2262,11 +2387,13 @@ textarea {
       ${c === 'load' ? `<textarea id="loadCode" aria-label="Paste a save code" placeholder="Paste a code that starts with PQ1:"></textarea>
         <div class="actions"><button type="button" class="btn gold" data-act="do-load">Load this save</button><button type="button" class="btn" data-act="cancel">Cancel</button></div>` : ''}
       <div class="group-h">Danger</div>
-      ${c === 'wipe' ? `<div class="confirm"><p>This deletes this world, your balls and upgrades. Stars are kept.</p>
+      ${c === 'wipe' ? `<div class="confirm"><p>This deletes this world, your balls and upgrades. Stars, perks and depth are kept.</p>
         <div class="actions"><button type="button" class="btn danger" data-act="do-wipe">Delete and start over</button><button type="button" class="btn" data-act="cancel">Keep playing</button></div></div>`
         : `<div class="actions"><button type="button" class="btn danger" data-act="wipe">Start over</button></div>`}
-      <p class="note">Seed ${s.seed}</p>`;
+      <p class="note">Depth ${s.depth}: ${esc(this.depthNote(s.depth))} Seed ${s.seed}</p>`;
   };
+
+  U.starWord = n => `${n} star${n === 1 ? '' : 's'}`;
 
   U.bind = function () {
     document.querySelector('.tabs').addEventListener('click', e => {
@@ -2299,7 +2426,7 @@ textarea {
   U.showTab = function (tab) {
     this.tab = tab;
     document.querySelectorAll('.tabs [data-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
-    ['balls', 'upgrades', 'world'].forEach(k => { $('panel-' + k).hidden = k !== tab; });
+    ['balls', 'upgrades', 'stars', 'world'].forEach(k => { $('panel-' + k).hidden = k !== tab; });
     if (tab === 'world') { this.buildWorld(); }
     this.refresh();
   };
@@ -2319,7 +2446,12 @@ textarea {
         if (n && t > 0 && s.owned[BALLS[t].key] === n) this.toast(`First ${BALLS[t].name} out. Its upgrades are in the Upgrades tab.`);
         break;
       }
-      case 'up': if (g.sim.buyUp(b.dataset.key) && b.dataset.key === 'radar' && s.global.radar === 1) this.toast('Radar on. It reads the centre of your screen.'); break;
+      case 'up': if (g.sim.buyUp(b.dataset.key) && b.dataset.key === 'radar') this.radarToast(); break;
+      case 'perk': {
+        const before = s.global.radar;
+        if (sim.buyPerk(b.dataset.key) && s.global.radar > before) this.radarToast();
+        break;
+      }
       case 'bup': sim.buyBallUp(+b.dataset.t, b.dataset.kind); break;
       case 'prestige': this.closeModal(); g.newWorld(true); return;
       case 'keep': this.closeModal(); this.buildWorld(); break;
@@ -2374,6 +2506,12 @@ textarea {
       <div class="actions"><button type="button" class="btn gold" data-act="close">Start digging</button></div>`);
   };
 
+  U.radarToast = function () {
+    const lv = this.g.state.global.radar;
+    this.toast(lv === 1 ? 'Radar on. It senses the gold from your closest ball.'
+      : lv === 2 ? 'Search zone ringed on the map. The gold is somewhere inside.' : 'Search zone narrowed.', 3200);
+  };
+
   U.relic = function (e) {
     const n = this.g.state.relics.length, total = this.g.world.relics.length;
     this.toast(`Relic uncovered: ${e.name} (${n}/${total}). +${fmt(e.reward)} bits`, 3200);
@@ -2382,7 +2520,7 @@ textarea {
   U.offline = function (r) {
     if (r.gain < 1) return;
     this.modal(`<h2>Welcome back</h2>
-      <p class="sub">Your balls kept working for ${fmtTime(r.seconds)}${r.seconds >= D.OFFLINE_CAP ? ' (the most they bank)' : ''}.</p>
+      <p class="sub">Your balls kept working for ${fmtTime(r.seconds)}${r.seconds >= this.g.sim.offCap ? ' (the most they bank)' : ''}.</p>
       <div class="big">+${fmt(r.gain)}</div>
       <div class="actions"><button type="button" class="btn gold" data-act="close">Collect</button></div>`);
   };
@@ -2392,9 +2530,9 @@ textarea {
     this.modal(`<h2>You found the Golden Pixel.</h2>
       <p class="sub">One pixel out of 10,000,000, after ${fmtTime(s.foundTime)} in this world. It pays a finder's fee of</p>
       <div class="big">+${fmt(s.goldReward)}</div>
-      <p>Start a new world to take a star with you: +${D.STAR_BONUS * 100}% bits forever, for every Golden Pixel you find.</p>
+      <p>Go deeper to collect ${this.starWord(D.DEPTH.stars(s.depth))}. Every star adds +${D.STAR_BONUS * 100}% bits for good, and you can spend them on perks in the Stars tab. Depth ${s.depth + 1}: ${esc(this.depthNote(s.depth + 1))}</p>
       <div class="actions">
-        <button type="button" class="btn gold" data-act="prestige">New world, +1 star</button>
+        <button type="button" class="btn gold" data-act="prestige">Go deeper</button>
         <button type="button" class="btn" data-act="keep">Keep mining here</button>
       </div>`);
   };
@@ -2414,17 +2552,15 @@ textarea {
     $('ballCount').textContent = sim.n.toLocaleString('en-US');
     document.querySelectorAll('#buymode [data-n]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.n === s.buyMode));
 
-    // Radar reads the screen centre.
+    // Radar reads the ball nearest the gold.
     const radar = $('radar');
     radar.hidden = s.global.radar < 1;
     if (!radar.hidden) {
       if (s.found) { $('heat').style.width = '100%'; $('radarText').textContent = 'Found'; }
       else {
-        const c = g.renderer.focus(), gd = g.world.gold;
-        const d = Math.hypot(gd.x - c.x, gd.y - c.y), heat = Math.max(0, 1 - d / 1800);
+        const d = sim.goldDistance(), heat = Math.max(0, 1 - d / D.RADAR.range);
         $('heat').style.width = (heat * 100).toFixed(0) + '%';
-        const word = heat < 0.25 ? 'Cold' : heat < 0.5 ? 'Cool' : heat < 0.75 ? 'Warm' : heat < 0.93 ? 'Hot' : 'Burning';
-        $('radarText').textContent = s.global.radar >= 3 ? `${word} · ${Math.round(d).toLocaleString('en-US')} px` : word;
+        $('radarText').textContent = d < 120 ? 'Burning' : d < 350 ? 'Hot' : d < 750 ? 'Warm' : d < 1400 ? 'Cool' : 'Cold';
       }
     }
 
@@ -2467,10 +2603,33 @@ textarea {
     });
     $('upDot').hidden = !upAffordable || this.tab === 'upgrades';
 
+    const left = sim.starsLeft();
+    let perkAffordable = false;
+    D.STAR_PERKS.forEach(k => {
+      const lvl = s.perks[k.key], cost = sim.perkCost(k.key), maxed = !isFinite(cost), ok = !maxed && cost <= left;
+      perkAffordable = perkAffordable || ok;
+      if (this.tab !== 'stars') return;
+      const row = $('pk-' + k.key);
+      row.querySelector('.lv').textContent = `Lv ${lvl}/${k.costs.length}`;
+      row.querySelector('.desc').textContent = perkText(k, maxed ? lvl : lvl + 1);
+      const btn = row.querySelector('.buy');
+      btn.disabled = !ok;
+      btn.classList.toggle('afford', ok);
+      btn.querySelector('.cost').textContent = maxed ? 'Max' : `${cost} ★`;
+      btn.querySelector('.lbl').textContent = maxed ? 'Done' : 'Buy';
+    });
+    $('starDot').hidden = !perkAffordable || this.tab === 'stars';
+    if (this.tab === 'stars') {
+      $('starsNote').textContent = s.stars
+        ? `${this.starWord(left)} to spend. All ${s.stars} you have earned add +${fmt(s.stars * D.STAR_BONUS * 100)}% bits, spent or not.`
+        : 'Find the Golden Pixel to earn stars. Spend them here on perks that last through every world.';
+    }
+
     if (this.tab === 'world' && $('st-broken')) {
       $('st-broken').textContent = fmt(s.broken);
       $('st-mined').textContent = (100 * g.world.minedCount / g.world.solidTotal).toFixed(2) + '%';
       $('st-time').textContent = fmtTime(s.playTime);
+      $('st-depth').textContent = s.depth;
       $('st-stars').textContent = s.stars;
       $('st-earned').textContent = fmt(s.earned);
       $('st-life').textContent = fmt(s.lifetime);
@@ -2537,7 +2696,7 @@ textarea {
     progress(0, 'Generating 10,000,000 pixels');
     await yieldFrame();
 
-    const world = PQ.World.create(state.seed);
+    const world = PQ.World.create(state.seed, state.depth);
     PQ.World.prepare(world);
     const CH = 160;
     for (let y = 0; y < D.H; y += CH) {
@@ -2598,7 +2757,7 @@ textarea {
     PQ.Save.saveMeta(next);
     await boot(next, false);
     await saveAll();
-    if (prestige) game.ui.toast(`New world. ${next.stars} star${next.stars === 1 ? '' : 's'}: +${next.stars * D.STAR_BONUS * 100}% bits.`, 3500);
+    if (prestige) game.ui.toast(`Depth ${next.depth}. ${game.ui.depthNote(next.depth)}`, 4500);
   };
 
   game.reload = function () { location.reload(); };
