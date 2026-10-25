@@ -469,10 +469,10 @@ textarea {
     BALLS: [
       { key: 'pebble', name: 'Pebble', color: '#e9e4d6', dmg: 1,  speed: 46,  cost: 15,     unlock: 0,
         desc: 'Bounces around and chips whatever it hits.' },
-      { key: 'lancer', name: 'Lancer', color: '#4aa8ff', dmg: 3,  speed: 120, cost: 400,    unlock: 300,
+      { key: 'lancer', name: 'Lancer', color: '#4aa8ff', dmg: 3,  speed: 120, cost: 300,    unlock: 200,
         desc: 'Only travels in straight lines. Cuts long, clean tunnels.',
         special: { key: 'pierce', name: 'Pierce', desc: 'Keeps going through 1 more broken pixel', max: 10, base: 0, step: 1 } },
-      { key: 'bomb',   name: 'Bomb',   color: '#ff5a48', dmg: 2,  speed: 50,  cost: 4000,   unlock: 3500,
+      { key: 'bomb',   name: 'Bomb',   color: '#ff5a48', dmg: 2,  speed: 50,  cost: 2800,   unlock: 2500,
         desc: 'Blows out a circle of pixels on impact, then recharges.',
         special: { key: 'radius', name: 'Blast radius', desc: '+1 px blast radius', max: 10, base: 4, step: 1 } },
       { key: 'venom',  name: 'Venom',  color: '#6fe05a', dmg: 2,  speed: 52,  cost: 40000,  unlock: 35000,
@@ -494,7 +494,7 @@ textarea {
     MILESTONES: [10, 25, 50, 100, 200, 400, 800, 1600],
     MILESTONE_MULT: 1.5,
     // Scales every pixel's value; the main dial for how long a world takes.
-    VALUE_SCALE: 0.25,
+    VALUE_SCALE: 0.15,
     // Ball n of a type costs cost * (1 + n / COST_K)^COST_EXP, so swarms of thousands stay reachable.
     COST_K: 8,
     COST_EXP: 2,
@@ -527,6 +527,11 @@ textarea {
       stars: d => 1 + Math.floor(d / 2),      // stars paid for the gold at depth d
     },
 
+    // Clear bonus: income on the next dig for digging out this one. Nothing below `from`,
+    // then up to 1 + max just short of every pixel, and `full` for every last one.
+    // track: pixels left when the last ones light up and get marked on the map.
+    CLEAR: { from: 0.5, max: 1, full: 3, track: 2000 },
+
     // Spent from unspent stars. Every star ever earned still pays STAR_BONUS.
     STAR_PERKS: [
       { key: 'start', name: 'Head Start', costs: [1, 2, 4, 7], vals: [0, 5e3, 5e4, 5e5, 5e6],
@@ -546,7 +551,7 @@ textarea {
     POISON_TICK: 0.25,      // s between poison damage passes
     POISON_CAP: 60000,      // live poisoned cells
     BOMB_COOLDOWN: 1.0,
-    OFFLINE_RATE: 0.5,      // share of live income paid while away
+    OFFLINE_RATE: 0.3,      // share of live income paid while away
     OFFLINE_CAP: 8 * 3600,  // s
     STAR_BONUS: 0.5,        // +50% value per Golden Pixel found
 
@@ -694,11 +699,40 @@ textarea {
     return false;
   }
 
+  // Rock walled in by a relic's own outline (an eye socket, the inside of a ring) can never
+  // be reached, which would make a full clear impossible. Hollow it out.
+  function hollowRelics(w) {
+    const cells = w.cells;
+    for (const r of w.relics) {
+      const x0 = Math.max(0, r.x0), x1 = Math.min(W, r.x1), y0 = Math.max(0, r.y0), y1 = Math.min(H, r.y1);
+      const bw = x1 - x0, bh = y1 - y0, open = new Uint8Array(bw * bh), stack = [];
+      const push = (x, y) => {
+        const k = (y - y0) * bw + (x - x0);
+        if (open[k] || cells[y * W + x] === T.RELIC) return;
+        open[k] = 1; stack.push(k);
+      };
+      for (let x = x0; x < x1; x++) { push(x, y0); push(x, y1 - 1); }
+      for (let y = y0; y < y1; y++) { push(x0, y); push(x1 - 1, y); }
+      while (stack.length) {
+        const k = stack.pop(), x = x0 + k % bw, y = y0 + ((k / bw) | 0);
+        if (x > x0) push(x - 1, y);
+        if (x < x1 - 1) push(x + 1, y);
+        if (y > y0) push(x, y - 1);
+        if (y < y1 - 1) push(x, y + 1);
+      }
+      for (let k = 0; k < bw * bh; k++) {
+        const i = (y0 + ((k / bw) | 0)) * W + x0 + k % bw;
+        if (!open[k] && cells[i] !== T.RELIC) cells[i] = T.AIR;
+      }
+    }
+  }
+
   // Relics, the Golden Pixel and the solid-pixel count. Run after every row exists.
   function finalize(w) {
     const rng = mulberry32(w.seed ^ 0x9e3779b9);
     const cells = w.cells;
     w.relics = PQ.Relics.place(w, rng);
+    hollowRelics(w);
 
     // The Golden Pixel sits deep, fully buried, away from relics. Deeper worlds bury it lower.
     const top = Math.floor(H * D.DEPTH.goldTop(w.depth));
@@ -1127,6 +1161,7 @@ textarea {
       v: 1, seed: seed >>> 0,
       bits: 0, earned: 0, lifetime: 0, stars: 0,
       depth: 0, spent: 0, perks: newPerks(),   // depth = Golden Pixels found; spent = stars spent on perks
+      cleared: 0, clearMult: 1,             // share of this world dug out; bonus earned by the last one
       owned, up, unlocked, global: { tap: 0, value: 0, radar: 0 },
       drop: { x: W / 2, y: 110 },
       found: false, foundTime: 0, goldReward: 0,
@@ -1166,6 +1201,9 @@ textarea {
     this.rateT = 0;
     this.rng = PQ.World.mulberry32((state.seed ^ 0x5bd1e995) >>> 0);
     this.relicSeen = new Set(state.relics || []);
+    this.last = null;                                     // the final few rock pixels, once few are left
+    this.tapping = false;
+    state.cleared = Math.min(1, world.minedCount / world.solidTotal);
     this.derive();
   }
 
@@ -1178,7 +1216,7 @@ textarea {
       const b = BALLS[B[key]];
       return b.special.base + b.special.step * s.up[key].sp;
     };
-    this.valueMult = (1 + 0.25 * s.global.value) * (1 + D.STAR_BONUS * s.stars);
+    this.valueMult = (1 + 0.25 * s.global.value) * (1 + D.STAR_BONUS * s.stars) * (s.clearMult || 1);
     this.tDmg = BALLS.map(b => Math.round(b.dmg * Math.pow(1.6, s.up[b.key].dmg)));
     this.tMult = BALLS.map(b => Math.pow(D.MILESTONE_MULT, milestone(s.owned[b.key]).lv));
     this.tSpd = BALLS.map(b => b.speed * (1 + 0.15 * s.up[b.key].spd));
@@ -1293,12 +1331,14 @@ textarea {
     w.dmg[i] = 0;
     w.mined[i >> 3] |= 1 << (i & 7);
     w.minedCount++;
+    s.cleared = Math.min(1, w.minedCount / w.solidTotal);
     const v = MAT[t].val * mult * this.valueMult * D.VALUE_SCALE;
     this.acc[this.src] += v;
     s.bits += v; s.earned += v; s.lifetime += v;
     s.broken++;
     this.dirty(x, y);
-    this.reveal(x, y, 6);
+    if (!this.tapping) this.reveal(x, y, 6);   // the pickaxe only works in the light, so it lights nothing
+    if (w.minedCount >= w.solidTotal) this.events.push({ type: 'clear' });
     if (this.fxn < 256) { this.fxI[this.fxn] = i; this.fxT[this.fxn] = t; this.fxn++; }
     const g = w.gold;
     if (t === T.GOLD) {
@@ -1441,29 +1481,57 @@ textarea {
       if (this.hist.length > 11) this.hist.shift();
       s.rate = this.hist.length > 1 ? (this.hist[this.hist.length - 1] - this.hist[0]) / (this.hist.length - 1) : 0;
       for (let i = 0; i < this.acc.length; i++) { this.typeRate[i] += (this.acc[i] - this.typeRate[i]) * 0.2; this.acc[i] = 0; }
+      this.trackLast();
     }
   };
 
-  // A tap on rock digs; a tap on open space moves the drop point.
+  // Lit well enough to act on: the same line a relic counts as found at.
+  P.seen = function (x, y) { return this.w.fog[(y >> 2) * this.w.FW + (x >> 2)] >= 160; };
+
+  // A tap on rock digs; a tap on open space moves the drop point. Both only in the light,
+  // so the radar ring can't be dug out by hand through the dark.
   P.tap = function (wx, wy) {
     const x = Math.floor(wx), y = Math.floor(wy);
     if (x < 0 || y < 0 || x >= W || y >= H) return null;
+    if (!this.seen(x, y)) return 'dark';
     const cells = this.w.cells, t = cells[y * W + x] & MASK;
     if (t === 0) { this.s.drop = { x: x + 0.5, y: y + 0.5 }; return 'drop'; }
     if (t === T.RELIC) return 'relic';
     const R = this.tapR;
     this.src = BALLS.length;
+    this.tapping = true;
     for (let dy = -R; dy <= R; dy++) {
       const yy = y + dy;
       if (yy < 0 || yy >= H) continue;
       const span = Math.floor(Math.sqrt(R * R - dy * dy));
       for (let dx = -span; dx <= span; dx++) {
         const xx = x + dx;
-        if (xx < 0 || xx >= W || !(cells[yy * W + xx] & MASK)) continue;
+        if (xx < 0 || xx >= W || !(cells[yy * W + xx] & MASK) || !this.seen(xx, yy)) continue;
         this.hit(xx, yy, this.tapDmg, 1);
       }
     }
+    this.tapping = false;
     return 'dig';
+  };
+
+  // ---- clearing the world ----
+  P.pixelsLeft = function () { return Math.max(0, this.w.solidTotal - this.w.minedCount); };
+  // Once only a few pixels are left, find them and light them up so they can be hunted down.
+  P.trackLast = function () {
+    const left = this.pixelsLeft();
+    if (!this.last) {
+      if (left > D.CLEAR.track || !left) return;
+      const cells = this.w.cells, list = [];
+      for (let i = 0; i < D.N; i++) {
+        const t = cells[i] & MASK;
+        if (t && t !== T.RELIC) list.push(i);
+      }
+      this.last = list;
+      for (const i of list) this.reveal(i % W + 0.5, ((i / W) | 0) + 0.5, 6);
+    } else {
+      const cells = this.w.cells;
+      this.last = this.last.filter(i => cells[i] & MASK);
+    }
   };
 
   // ---- shop ----
@@ -1624,10 +1692,19 @@ textarea {
     });
   };
 
+  // What clearing a share of a world pays on the next dig, as an income multiplier.
+  function clearBonus(cleared) {
+    const C = D.CLEAR;
+    if (cleared >= 1) return C.full;
+    return 1 + C.max * Math.max(0, (cleared - C.from) / (1 - C.from));
+  }
+
   // State for the next world. Finding the gold pays stars and makes the next world deeper;
-  // starting over without it keeps both as they were. Star perks apply here.
+  // starting over without it keeps both as they were. Star perks apply here, and so does
+  // the clear bonus for how much of the old world was dug out.
   function prestige(s, seed) {
     const next = newState(seed);
+    next.clearMult = clearBonus(s.cleared || 0);
     next.depth = s.depth + (s.found ? 1 : 0);
     next.stars = s.stars + (s.found ? D.DEPTH.stars(s.depth) : 0);
     next.spent = s.spent;
@@ -1647,6 +1724,7 @@ textarea {
   PQ.Sim = Sim;
   PQ.newState = newState;
   PQ.prestige = prestige;
+  PQ.clearBonus = clearBonus;
   PQ.newPerks = newPerks;
   PQ.milestone = milestone;
   PQ.BALL = B;
@@ -2003,6 +2081,24 @@ textarea {
     this.drawDrop(ctx, toDX, toDY);
     this.drawFloats(ctx, dt, toDX, toDY);
     if (this.radar >= 2 && !sim.s.found) this.drawZone(ctx, toDX, toDY);
+    if (sim.last && sim.last.length) this.drawLast(ctx, toDX, toDY, vx0, vy0, vx1, vy1);
+  };
+
+  // The last pixels of rock in the world, ringed so they can be found at any zoom.
+  R.drawLast = function (ctx, toDX, toDY, vx0, vy0, vx1, vy1) {
+    const list = this.sim.last, dpr = this.dpr, m = 12 / this.cam.z;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 4);
+    const r = (4 + 3 * pulse) * dpr;
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.strokeStyle = `rgba(120,240,255,${0.5 + 0.4 * pulse})`;
+    ctx.beginPath();
+    for (const i of list) {
+      const x = i % W, y = (i / W) | 0;
+      if (x < vx0 - m || x > vx1 + m || y < vy0 - m || y > vy1 + m) continue;
+      const cx = toDX(x + 0.5), cy = toDY(y + 0.5);
+      ctx.rect(cx - r, cy - r, r * 2, r * 2);
+    }
+    ctx.stroke();
   };
 
   R.drawBalls = function (ctx, toDX, toDY, vx0, vy0, vx1, vy1) {
@@ -2377,6 +2473,8 @@ textarea {
     return `${m}m ${String(s).padStart(2, '0')}s`;
   }
   const fmtX = m => m < 1000 ? String(+m.toFixed(2)) : fmt(m);   // multipliers keep their decimals
+  const CLEAR_MARKS = [0.5, 0.75, 0.9, 0.99];
+  const pct = c => c >= 0.9995 && c < 1 ? '99.9' : (100 * c).toFixed(c < 0.1 ? 2 : 1);
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   function UI(game) {
@@ -2407,6 +2505,8 @@ textarea {
       </div>`).join('');
     this.readySeen = new Set();
     this.mileSeen = BALLS.map(b => PQ.milestone(this.g.state.owned[b.key]).lv);
+    this.clearSeen = CLEAR_MARKS.filter(m => this.g.state.cleared >= m).length;
+    this.lastSeen = !!this.g.sim.last;
     this.shown = this.g.state.bits;
 
     // Upgrades: tools first, then one group per ball type (shown once owned)
@@ -2464,6 +2564,8 @@ textarea {
       ${s.found ? `<div class="group-h">Golden Pixel found</div>
         <p class="note">Go down to depth ${s.depth + 1} and collect ${this.starWord(D.DEPTH.stars(s.depth))}. Balls and upgrades reset; stars and perks stay.</p>
         <div class="actions"><button type="button" class="btn gold" data-act="prestige">Go deeper</button></div>` : ''}
+      <div class="group-h">Clear bonus</div>
+      <p class="note" id="clearNote"></p>
       <dl class="stats">
         <div><dt>Pixels broken</dt><dd id="st-broken">0</dd></div>
         <div><dt>World mined</dt><dd id="st-mined">0%</dd></div>
@@ -2473,6 +2575,8 @@ textarea {
         <div><dt>Earned here</dt><dd id="st-earned">0</dd></div>
         <div><dt>Earned ever</dt><dd id="st-life">0</dd></div>
         <div><dt>Relics found</dt><dd id="st-relics">0</dd></div>
+        <div><dt>Pixels left</dt><dd id="st-left">0</dd></div>
+        <div><dt>Bonus this dig</dt><dd id="st-bonus">×1</dd></div>
       </dl>
       <div class="group-h">Settings</div>
       <label class="toggle"><input type="checkbox" id="optParticles" ${s.settings.particles ? 'checked' : ''}> Rock chips when pixels break</label>
@@ -2493,6 +2597,38 @@ textarea {
       <div class="group-h">App</div>
       <p class="note">Version ${esc(this.g.build || 'dev')}</p>
       <div class="actions"><button type="button" class="btn" data-act="update">Check for update</button></div>`;
+  };
+
+  // How much of this world is dug out and what that pays on the next dig.
+  U.clearText = function () {
+    const s = this.g.state, C = D.CLEAR, now = PQ.clearBonus(s.cleared);
+    const head = `You've cleared ${pct(s.cleared)}% of this world.`;
+    if (s.cleared >= 1) return `${head} Every pixel! Your next dig earns ×${C.full}.`;
+    const how = `Past ${C.from * 100}% cleared, every pixel you dig raises your next dig's income, up to ×${1 + C.max}. Clear every last pixel for ×${C.full}.`;
+    return now > 1 ? `${head} Next dig: ×${fmtX(now)}. ${how}` : `${head} ${how}`;
+  };
+
+  // Toasts as the world empties, and the full clear itself.
+  U.clearCheck = function () {
+    const s = this.g.state, sim = this.g.sim;
+    const passed = CLEAR_MARKS.filter(m => s.cleared >= m).length;
+    if (passed > this.clearSeen) {
+      const m = CLEAR_MARKS[passed - 1];
+      this.clearSeen = passed;
+      this.toast(`${m * 100}% of the world cleared. Next dig earns ×${fmtX(PQ.clearBonus(s.cleared))}.`, 3200);
+    }
+    if (sim.last && !this.lastSeen && sim.last.length) {
+      this.lastSeen = true;
+      this.toast(`Only ${sim.last.length.toLocaleString('en-US')} pixels left. They're lit up and marked on the map.`, 4000);
+    }
+  };
+  U.cleared = function () {
+    this.modal(`<h2>Every pixel cleared.</h2>
+      <p class="sub">All ${fmt(this.g.world.solidTotal)} pixels of rock in this world are gone.</p>
+      <div class="big">×${D.CLEAR.full}</div>
+      <p>Your next dig earns ×${D.CLEAR.full} on every pixel.${this.g.state.found ? ' Go deeper whenever you are ready.' : ''}</p>
+      <div class="actions">${this.g.state.found ? '<button type="button" class="btn gold" data-act="prestige">Go deeper</button>' : ''}
+        <button type="button" class="btn" data-act="close">Nice</button></div>`);
   };
 
   U.starWord = n => `${n} star${n === 1 ? '' : 's'}`;
@@ -2604,7 +2740,7 @@ textarea {
       <p>This world is 10,000,000 pixels deep. Your balls bounce around and break rock, and every broken pixel pays bits.</p>
       <ul>
         <li>Spend bits on more balls and upgrades.</li>
-        <li>Tap rock to dig it yourself. Hold to keep digging.</li>
+        <li>Tap lit rock to dig it yourself. Hold to keep digging.</li>
         <li>Tap open space to move the drop point, where new balls appear.</li>
         <li>The dark is unexplored rock. Balls light it up as they go, and relics are buried in it.</li>
         <li>Drag to look around. Pinch to zoom.</li>
@@ -2653,6 +2789,7 @@ textarea {
       <p class="sub">One pixel out of 10,000,000, after ${fmtTime(s.foundTime)} in this world. It pays a finder's fee of</p>
       <div class="big">+${fmt(s.goldReward)}</div>
       <p>Go deeper to collect ${this.starWord(D.DEPTH.stars(s.depth))}. Every star adds +${D.STAR_BONUS * 100}% bits for good, and you can spend them on perks in the Stars tab. Depth ${s.depth + 1}: ${esc(this.depthNote(s.depth + 1))}</p>
+      <p>${esc(this.clearText())}</p>
       <div class="actions">
         <button type="button" class="btn gold" data-act="prestige">Go deeper</button>
         <button type="button" class="btn" data-act="keep">Keep mining here</button>
@@ -2730,6 +2867,7 @@ textarea {
       }
     });
     $('ballDot').hidden = !unlockAffordable || this.tab === 'balls';
+    this.clearCheck();
     BALLS.forEach((b, t) => {
       const lv = PQ.milestone(s.owned[b.key]).lv;
       if (lv > this.mileSeen[t]) {
@@ -2788,7 +2926,10 @@ textarea {
 
     if (this.tab === 'world' && $('st-broken')) {
       $('st-broken').textContent = fmt(s.broken);
-      $('st-mined').textContent = (100 * g.world.minedCount / g.world.solidTotal).toFixed(2) + '%';
+      $('st-mined').textContent = pct(s.cleared) + '%';
+      $('st-left').textContent = sim.pixelsLeft().toLocaleString('en-US');
+      $('st-bonus').textContent = '×' + fmtX(s.clearMult);
+      $('clearNote').textContent = this.clearText();
       $('st-time').textContent = fmtTime(s.playTime);
       $('st-depth').textContent = s.depth;
       $('st-stars').textContent = s.stars;
@@ -2832,7 +2973,7 @@ textarea {
 // Pixel Quarry: boot, game loop, autosave.
 (function () {
   const PQ = window.PQ, D = PQ.DATA;
-  const BUILD = '20261024-184304';                       // build.py stamps the build time here
+  const BUILD = '20261024-223955';                       // build.py stamps the build time here
   const $ = id => document.getElementById(id);
   const canvas = $('world');
   const yieldFrame = () => new Promise(r => setTimeout(r, 0));
@@ -2917,6 +3058,7 @@ textarea {
     const gain = game.state.earned - e0;
     if (gain >= 1) game.renderer.float(p.x, p.y, '+' + PQ.fmt(gain));
     if (r === 'relic') game.ui.toast('Relics cannot be broken. Balls bounce off them.');
+    if (r === 'dark' && !held) game.ui.toast('Too dark to dig there. Balls light up the rock as they go.');
     if (r === 'drop' && !dropHinted) { dropHinted = true; game.ui.toast('Drop point moved. New balls appear here.'); }
   }
 
@@ -2927,7 +3069,8 @@ textarea {
     PQ.Save.saveMeta(next);
     await boot(next, false);
     await saveAll();
-    if (prestige) game.ui.toast(`Depth ${next.depth}. ${game.ui.depthNote(next.depth)}`, 4500);
+    const bonus = next.clearMult > 1 ? ` Clear bonus: ×${+next.clearMult.toFixed(2)} this dig.` : '';
+    if (prestige) game.ui.toast(`Depth ${next.depth}. ${game.ui.depthNote(next.depth)}${bonus}`, 5000);
   };
 
   game.reload = function () { location.reload(); };
@@ -2967,6 +3110,7 @@ textarea {
     for (const e of sim.events.splice(0)) {
       if (e.type === 'gold') { game.ui.gold(); saveAll(); }
       if (e.type === 'relic') game.ui.relic(e);
+      if (e.type === 'clear') { game.ui.cleared(); saveAll(); }
     }
     game.ui.tick(dt);
 
