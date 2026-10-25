@@ -92,7 +92,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--gold);
   box-shadow: 0 0 12px rgba(255, 214, 64, 0.55);
 }
-.rate { margin-top: 4px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.rate { margin-top: 5px; font: 500 17px/1 var(--display); color: var(--ink); font-variant-numeric: tabular-nums; }
 .hud-right { text-align: right; }
 .ballcount { font: 500 20px/1 var(--display); font-variant-numeric: tabular-nums; }
 .ballcount small { font: 13px var(--body); color: var(--muted); }
@@ -237,6 +237,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .name .count, .name .lv { font: 13px var(--body); color: var(--muted); margin-left: 6px; font-variant-numeric: tabular-nums; }
 .desc { margin-top: 2px; font-size: 13px; line-height: 1.35; color: var(--muted); }
 .row.locked .name, .row.locked .swatch { opacity: 0.45; filter: grayscale(1); }
+.row.mystery .swatch { background: var(--line); }
+.row.ready .swatch { animation: pulse 1.2s ease-in-out infinite; }
+.row.ready .buy:not(:disabled) { background: rgba(255, 214, 64, 0.12); }
+.prog { height: 4px; margin-top: 6px; background: var(--line); }
+.prog i { display: block; height: 100%; width: 0; background: var(--gold); }
+.prog[hidden] { display: none; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(255, 214, 64, 0.35); } }
+
+/* Unlock reveal: the new ball bouncing on a strip of rock */
+.reveal { position: relative; height: 72px; margin: -4px 0 10px; border-bottom: 3px solid var(--line); overflow: hidden; }
+.reveal i {
+  position: absolute; left: calc(50% - 9px); bottom: 0; width: 18px; height: 18px;
+  background: var(--c); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35);
+  animation: hop 0.9s cubic-bezier(0.3, 0, 0.7, 1) infinite alternate;
+}
+@keyframes hop { from { transform: translateY(0) scaleY(0.8); } 20% { transform: translateY(-6px) scaleY(1); } to { transform: translateY(-50px); } }
+.kicker { margin: 0; font: 500 12px var(--display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); }
+@media (prefers-reduced-motion: reduce) { .reveal i, .row.ready .swatch { animation: none; } }
 .buy {
   min-width: 96px;
   min-height: 46px;
@@ -377,7 +395,7 @@ textarea {
 <section class="sheet open" id="sheet" aria-label="Shop">
   <div class="sheet-bar">
     <nav class="tabs" role="tablist">
-      <button type="button" role="tab" id="tab-balls" data-tab="balls" aria-selected="true">Balls</button>
+      <button type="button" role="tab" id="tab-balls" data-tab="balls" aria-selected="true">Balls<span class="dot" id="ballDot" hidden></span></button>
       <button type="button" role="tab" id="tab-upgrades" data-tab="upgrades" aria-selected="false">Upgrades<span class="dot" id="upDot" hidden></span></button>
       <button type="button" role="tab" id="tab-stars" data-tab="stars" aria-selected="false">Stars<span class="dot" id="starDot" hidden></span></button>
       <button type="button" role="tab" id="tab-world" data-tab="world" aria-selected="false">World</button>
@@ -460,12 +478,20 @@ textarea {
       { key: 'midas',  name: 'Midas',  color: '#ff9b2e', dmg: 4,  speed: 60,  cost: 400000, unlock: 300000,
         desc: 'Every pixel it breaks pays out several times over.',
         special: { key: 'mult', name: 'Alchemy', desc: '+1× payout', max: 12, base: 4, step: 1 } },
-      { key: 'drill',  name: 'Drill',  color: '#b46cff', dmg: 30, speed: 40,  cost: 4e6,    unlock: 3e6,
+      { key: 'drill',  name: 'Drill',  color: '#b46cff', dmg: 30, speed: 40,  cost: 1.2e7,  unlock: 8e6,
         desc: 'Bores straight through anything it can break in one hit.' },
-      { key: 'seeker', name: 'Seeker', color: '#37e2d6', dmg: 60, speed: 70,  cost: 5e7,    unlock: 4e7,
+      { key: 'seeker', name: 'Seeker', color: '#37e2d6', dmg: 60, speed: 70,  cost: 2.5e8,  unlock: 1.5e8,
         desc: 'Homes in on the Golden Pixel, boring through soft rock on the way.',
         special: { key: 'steer', name: 'Instinct', desc: 'Steers harder toward the gold', max: 8, base: 1, step: 1 } },
     ],
+    // A ball type is unlocked by hand once its `unlock` bits are earned: UNLOCK_MULT x its cost,
+    // and the first ball comes with it.
+    UNLOCK_MULT: 2,
+    // Owning this many of a type multiplies what that type earns by MILESTONE_MULT, each time.
+    MILESTONES: [10, 25, 50, 100, 200, 400, 800, 1600],
+    MILESTONE_MULT: 1.5,
+    // Scales every pixel's value; the main dial for how long a world takes.
+    VALUE_SCALE: 0.25,
     // Ball n of a type costs cost * (1 + n / COST_K)^COST_EXP, so swarms of thousands stay reachable.
     COST_K: 8,
     COST_EXP: 2,
@@ -1073,6 +1099,13 @@ textarea {
   const B = {};
   BALLS.forEach((b, i) => { B[b.key] = i; });
 
+  // How many ownership milestones a count has passed, and the next one (or 0 when done).
+  function milestone(owned) {
+    let lv = 0;
+    while (lv < D.MILESTONES.length && owned >= D.MILESTONES[lv]) lv++;
+    return { lv, next: D.MILESTONES[lv] || 0, prev: lv ? D.MILESTONES[lv - 1] : 0 };
+  }
+
   function newPerks() {
     const p = {};
     D.STAR_PERKS.forEach(k => { p[k.key] = 0; });
@@ -1086,11 +1119,12 @@ textarea {
     const owned = {}, up = {};
     BALLS.forEach(b => { owned[b.key] = 0; up[b.key] = { dmg: 0, spd: 0, sp: 0 }; });
     owned.pebble = 1;                       // one free ball to start
+    const unlocked = { pebble: true };
     return {
       v: 1, seed: seed >>> 0,
       bits: 0, earned: 0, lifetime: 0, stars: 0,
       depth: 0, spent: 0, perks: newPerks(),   // depth = Golden Pixels found; spent = stars spent on perks
-      owned, up, global: { tap: 0, value: 0, radar: 0 },
+      owned, up, unlocked, global: { tap: 0, value: 0, radar: 0 },
       drop: { x: W / 2, y: 110 },
       found: false, foundTime: 0, goldReward: 0,
       relics: [],                           // indexes of relics uncovered in this world
@@ -1123,6 +1157,9 @@ textarea {
     this.fxI = new Int32Array(256); this.fxT = new Uint8Array(256); this.fxn = 0;
     this.events = [];
     this.hist = [state.earned];
+    this.src = 0;                                         // who is breaking rock right now: ball type, or TAP
+    this.acc = new Float64Array(BALLS.length + 1);        // bits per source this second
+    this.typeRate = new Float64Array(BALLS.length + 1);   // smoothed bits/s per source
     this.rateT = 0;
     this.rng = PQ.World.mulberry32((state.seed ^ 0x5bd1e995) >>> 0);
     this.relicSeen = new Set(state.relics || []);
@@ -1140,6 +1177,7 @@ textarea {
     };
     this.valueMult = (1 + 0.25 * s.global.value) * (1 + D.STAR_BONUS * s.stars);
     this.tDmg = BALLS.map(b => Math.round(b.dmg * Math.pow(1.6, s.up[b.key].dmg)));
+    this.tMult = BALLS.map(b => Math.pow(D.MILESTONE_MULT, milestone(s.owned[b.key]).lv));
     this.tSpd = BALLS.map(b => b.speed * (1 + 0.15 * s.up[b.key].spd));
     this.pierceMax = BALLS.map(b => b.key === 'lancer' ? sp('lancer') : (b.key === 'drill' || b.key === 'seeker') ? 255 : 0);
     this.bombR = sp('bomb');
@@ -1252,7 +1290,8 @@ textarea {
     w.dmg[i] = 0;
     w.mined[i >> 3] |= 1 << (i & 7);
     w.minedCount++;
-    const v = MAT[t].val * mult * this.valueMult;
+    const v = MAT[t].val * mult * this.valueMult * D.VALUE_SCALE;
+    this.acc[this.src] += v;
     s.bits += v; s.earned += v; s.lifetime += v;
     s.broken++;
     this.dirty(x, y);
@@ -1270,7 +1309,7 @@ textarea {
     }
   };
 
-  P.explode = function (cx, cy, R, amount) {
+  P.explode = function (cx, cy, R, amount, mult) {
     const cells = this.w.cells;
     for (let dy = -R; dy <= R; dy++) {
       const y = cy + dy;
@@ -1279,7 +1318,7 @@ textarea {
       for (let dx = -span; dx <= span; dx++) {
         const x = cx + dx;
         if (x < 0 || x >= W || !(cells[y * W + x] & MASK)) continue;
-        this.hit(x, y, amount, 1);
+        this.hit(x, y, amount, mult);
       }
     }
   };
@@ -1298,14 +1337,15 @@ textarea {
 
   P.tickPoison = function () {
     const cells = this.w.cells, P_ = this.poison, G = this.poisonGen;
-    const amt = Math.max(1, this.tDmg[B.venom]);
+    const amt = Math.max(1, this.tDmg[B.venom]), mult = this.tMult[B.venom];
+    this.src = B.venom;
     const n0 = this.pn;
     let j = 0;
     for (let q = 0; q < n0; q++) {
       const i = P_[q], g = G[q];
       if (!(cells[i] & POI)) continue;      // broken by something else
       const x = i % W, y = (i / W) | 0;
-      if (this.hit(x, y, amt, 1) === 1) {
+      if (this.hit(x, y, amt, mult) === 1) {
         if (g < this.venomGen) {
           if (x > 0 && this.rng() < this.venomP) this.poisonCell(x - 1, y, g + 1);
           if (x < W - 1 && this.rng() < this.venomP) this.poisonCell(x + 1, y, g + 1);
@@ -1321,12 +1361,13 @@ textarea {
   };
 
   P.ballHit = function (k, t, cx, cy) {
+    this.src = t;
     if (t === B.bomb && this.cd[k] <= 0) {
       this.cd[k] = D.BOMB_COOLDOWN;
-      this.explode(cx, cy, this.bombR, this.tDmg[t] * 2);
+      this.explode(cx, cy, this.bombR, this.tDmg[t] * 2, this.tMult[t]);
       return (this.w.cells[cy * W + cx] & MASK) === T.RELIC ? -1 : 0;
     }
-    const r = this.hit(cx, cy, this.tDmg[t], t === B.midas ? this.midas : 1);
+    const r = this.hit(cx, cy, this.tDmg[t], (t === B.midas ? this.midas : 1) * this.tMult[t]);
     if (t === B.venom && r === 0) this.poisonCell(cx, cy, 0);
     return r;
   };
@@ -1396,6 +1437,7 @@ textarea {
       this.hist.push(s.earned);
       if (this.hist.length > 11) this.hist.shift();
       s.rate = this.hist.length > 1 ? (this.hist[this.hist.length - 1] - this.hist[0]) / (this.hist.length - 1) : 0;
+      for (let i = 0; i < this.acc.length; i++) { this.typeRate[i] += (this.acc[i] - this.typeRate[i]) * 0.2; this.acc[i] = 0; }
     }
   };
 
@@ -1407,6 +1449,7 @@ textarea {
     if (t === 0) { this.s.drop = { x: x + 0.5, y: y + 0.5 }; return 'drop'; }
     if (t === T.RELIC) return 'relic';
     const R = this.tapR;
+    this.src = BALLS.length;
     for (let dy = -R; dy <= R; dy++) {
       const yy = y + dy;
       if (yy < 0 || yy >= H) continue;
@@ -1421,9 +1464,21 @@ textarea {
   };
 
   // ---- shop ----
-  P.unlocked = function (t) {
+  // unlocked: can be bought. canUnlock: earned enough in this world, waiting to be unlocked.
+  P.unlocked = function (t) { return !!this.s.unlocked[BALLS[t].key]; };
+  P.canUnlock = function (t) { return !this.unlocked(t) && this.s.earned >= BALLS[t].unlock; };
+  P.unlockCost = function (t) { return BALLS[t].cost * D.UNLOCK_MULT * this.discount; };
+  P.unlockBall = function (t) {
+    if (!this.canUnlock(t) || this.n >= D.MAX_BALLS) return false;
+    const cost = this.unlockCost(t);
+    if (cost > this.s.bits) return false;
     const b = BALLS[t];
-    return this.s.earned >= b.unlock || this.s.owned[b.key] > 0;
+    this.s.bits -= cost;
+    this.s.unlocked[b.key] = true;
+    this.s.owned[b.key]++;
+    this.spawn(t, this.s.drop.x, this.s.drop.y);
+    this.derive();
+    return true;
   };
   const unitCost = (b, n) => b.cost * Math.pow(1 + n / D.COST_K, D.COST_EXP);
   P.ballCost = function (t, count) {
@@ -1450,6 +1505,7 @@ textarea {
     if (cost > this.s.bits) return 0;
     this.s.bits -= cost;
     this.s.owned[BALLS[t].key] += count;
+    this.derive();
     for (let i = 0; i < count; i++) this.spawn(t, this.s.drop.x, this.s.drop.y);
     return count;
   };
@@ -1589,6 +1645,7 @@ textarea {
   PQ.newState = newState;
   PQ.prestige = prestige;
   PQ.newPerks = newPerks;
+  PQ.milestone = milestone;
   PQ.BALL = B;
 })();
 
@@ -1695,6 +1752,7 @@ textarea {
     this.cam = { x: W / 2, y: D.SURFACE, z: 3 };
     this.cssW = 1; this.cssH = 1; this.dpr = 1;
     this.parts = [];
+    this.floats = [];
     this.time = 0;
     this.particles = true;
     this.radar = 0;
@@ -1940,6 +1998,7 @@ textarea {
     this.drawParticles(ctx, dt, toDX, toDY, vx0, vy0, vx1, vy1);
     this.drawBalls(ctx, toDX, toDY, vx0, vy0, vx1, vy1);
     this.drawDrop(ctx, toDX, toDY);
+    this.drawFloats(ctx, dt, toDX, toDY);
     if (this.radar >= 2 && !sim.s.found) this.drawZone(ctx, toDX, toDY);
   };
 
@@ -2005,6 +2064,33 @@ textarea {
     ctx.lineWidth = 2 * dpr;
     const r = (10 + 6 * pulse) * dpr;
     ctx.strokeRect(cx - r, cy - r, r * 2, r * 2);
+  };
+
+  // "+bits" numbers that drift up from a tap and fade.
+  R.float = function (x, y, text) {
+    if (this.floats.length > 24) this.floats.shift();
+    this.floats.push({ x, y, text, t: 0 });
+  };
+  R.drawFloats = function (ctx, dt, toDX, toDY) {
+    if (!this.floats.length) return;
+    const dpr = this.dpr, keep = [];
+    ctx.save();
+    ctx.font = `700 ${16 * dpr}px 'Pixelify Sans', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3 * dpr;
+    ctx.strokeStyle = 'rgba(11,10,16,0.85)';
+    for (const f of this.floats) {
+      f.t += dt;
+      if (f.t > 1) continue;
+      const x = toDX(f.x), y = toDY(f.y) - (12 + 36 * f.t) * dpr;
+      ctx.globalAlpha = f.t < 0.6 ? 1 : 1 - (f.t - 0.6) / 0.4;
+      ctx.strokeText(f.text, x, y);
+      ctx.fillStyle = '#ffd640';
+      ctx.fillText(f.text, x, y);
+      keep.push(f);
+    }
+    ctx.restore();
+    this.floats = keep;
   };
 
   R.drawDrop = function (ctx, toDX, toDY) {
@@ -2155,6 +2241,10 @@ textarea {
     s.settings = Object.assign({ particles: true }, meta.settings);
     s.relics = Array.isArray(meta.relics) ? meta.relics : [];
     s.perks = Object.assign(PQ.newPerks(), meta.perks);
+    if (!meta.unlocked) {                   // before unlocking by hand: anything owned is unlocked
+      s.unlocked = { pebble: true };
+      for (const b of PQ.DATA.BALLS) if (s.owned[b.key] > 0) s.unlocked[b.key] = true;
+    }
     if (typeof meta.depth !== 'number') s.depth = s.stars || 0;   // before depth: one star per gold found
     return s;
   }
@@ -2283,6 +2373,7 @@ textarea {
     if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
     return `${m}m ${String(s).padStart(2, '0')}s`;
   }
+  const fmtX = m => m < 1000 ? String(+m.toFixed(2)) : fmt(m);   // multipliers keep their decimals
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   function UI(game) {
@@ -2291,6 +2382,7 @@ textarea {
     this.t = 0;
     this.toastT = 0;
     this.confirm = null;           // which inline confirm is open in the World tab
+    this.shown = game.state.bits;  // the HUD counter rolls toward the real number
     this.build();
     this.bind();
   }
@@ -2305,10 +2397,14 @@ textarea {
         </div></div>` + BALLS.map((b, t) => `
       <div class="row ball" id="ball-${t}">
         <span class="swatch" style="--c:${b.color}"></span>
-        <div><div class="name">${esc(b.name)}<span class="count" id="bc-${t}"></span></div>
-          <div class="desc" id="bd-${t}">${esc(b.desc)}</div></div>
+        <div><div class="name"><span id="bn-${t}">${esc(b.name)}</span><span class="count" id="bc-${t}"></span></div>
+          <div class="desc" id="bd-${t}">${esc(b.desc)}</div>
+          <div class="prog" id="bp-${t}" hidden><i></i></div></div>
         <button type="button" class="buy" id="bb-${t}" data-act="ball" data-t="${t}"><span class="lbl">Buy</span><span class="cost">0</span></button>
       </div>`).join('');
+    this.readySeen = new Set();
+    this.mileSeen = BALLS.map(b => PQ.milestone(this.g.state.owned[b.key]).lv);
+    this.shown = this.g.state.bits;
 
     // Upgrades: tools first, then one group per ball type (shown once owned)
     const toolRows = D.UP.map(u => `
@@ -2442,10 +2538,12 @@ textarea {
     const g = this.g, sim = g.sim, s = g.state;
     switch (b.dataset.act) {
       case 'ball': {
-        const t = +b.dataset.t, n = sim.buyBall(t, this.buyCount(t));
-        if (n && t > 0 && s.owned[BALLS[t].key] === n) this.toast(`First ${BALLS[t].name} out. Its upgrades are in the Upgrades tab.`);
+        const t = +b.dataset.t;
+        if (sim.canUnlock(t)) { if (sim.unlockBall(t)) this.reveal(t); }
+        else sim.buyBall(t, this.buyCount(t));
         break;
       }
+      case 'release': this.closeModal(); g.renderer.lookAtDrop(s.drop, Math.max(g.renderer.cam.z, 3)); break;
       case 'up': if (g.sim.buyUp(b.dataset.key) && b.dataset.key === 'radar') this.radarToast(); break;
       case 'perk': {
         const before = s.global.radar;
@@ -2506,6 +2604,22 @@ textarea {
       <div class="actions"><button type="button" class="btn gold" data-act="close">Start digging</button></div>`);
   };
 
+  // A newly unlocked ball type, introduced.
+  U.reveal = function (t) {
+    const b = BALLS[t], sim = this.g.sim;
+    const sp = b.special ? `<li>Special upgrade: <b>${esc(b.special.name)}</b>. ${esc(b.special.desc)}.</li>` : '';
+    this.modal(`<div class="reveal" style="--c:${b.color}"><i></i></div>
+      <p class="kicker">New ball unlocked</p>
+      <h2>${esc(b.name)}</h2>
+      <p class="sub">${esc(b.desc)}</p>
+      <ul>
+        <li>Damage ${fmt(sim.tDmg[t])} per hit, speed ${Math.round(sim.tSpd[t])} px/s.</li>
+        ${sp}
+        <li>Your first one is free. Its upgrades are in the Upgrades tab.</li>
+      </ul>
+      <div class="actions"><button type="button" class="btn gold" data-act="release">Release it</button></div>`);
+  };
+
   U.radarToast = function () {
     const lv = this.g.state.global.radar;
     this.toast(lv === 1 ? 'Radar on. It senses the gold from your closest ball.'
@@ -2547,8 +2661,7 @@ textarea {
   // Text and button states. Runs a few times a second, not every frame.
   U.refresh = function () {
     const g = this.g, s = g.state, sim = g.sim;
-    $('bits').textContent = fmt(s.bits);
-    $('rate').textContent = `+${fmt(s.rate)} bits/s`;
+    $('rate').textContent = `+${fmt(s.rate)} /s`;
     $('ballCount').textContent = sim.n.toLocaleString('en-US');
     document.querySelectorAll('#buymode [data-n]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.n === s.buyMode));
 
@@ -2565,17 +2678,56 @@ textarea {
     }
 
     let upAffordable = false;
-    if (this.tab === 'balls') {
-      BALLS.forEach((b, t) => {
-        const unlocked = sim.unlocked(t);
-        $('ball-' + t).classList.toggle('locked', !unlocked);
-        $('bc-' + t).textContent = s.owned[b.key] ? `×${s.owned[b.key].toLocaleString('en-US')}` : '';
-        $('bd-' + t).textContent = unlocked ? b.desc : `Unlocks after earning ${fmt(b.unlock)} bits in this world.`;
+    // Balls: bought, ready to unlock, the next goal (with progress), or still a mystery.
+    let unlockAffordable = false;
+    const full = sim.n >= D.MAX_BALLS;
+    const next = BALLS.findIndex((b, t) => !sim.unlocked(t) && !sim.canUnlock(t));
+    BALLS.forEach((b, t) => {
+      const ready = sim.canUnlock(t), uCost = sim.unlockCost(t);
+      if (ready) {
+        unlockAffordable = unlockAffordable || (!full && uCost <= s.bits);
+        if (!this.readySeen.has(t)) { this.readySeen.add(t); this.toast(`${b.name} is ready to unlock in the Balls tab.`, 3200); }
+      }
+      if (this.tab !== 'balls') return;
+      const unlocked = sim.unlocked(t), hidden = !unlocked && !ready && t !== next;
+      const row = $('ball-' + t);
+      row.classList.toggle('locked', !unlocked && !ready);
+      row.classList.toggle('ready', ready);
+      row.classList.toggle('mystery', hidden);
+      $('bn-' + t).textContent = hidden ? '???' : b.name;
+      const own = s.owned[b.key], ms = PQ.milestone(own);
+      $('bc-' + t).textContent = own ? `×${own.toLocaleString('en-US')}` : '';
+      const prog = $('bp-' + t);
+      prog.hidden = ready || hidden || (unlocked && !ms.next);
+      if (unlocked) {
+        const inc = sim.typeRate[t], mult = sim.tMult[t];
+        $('bd-' + t).textContent = `+${fmt(inc)}/s` + (mult > 1 ? ` · earns ×${fmtX(mult)}` : '')
+          + (ms.next ? ` · ${ms.next} owned: ×${D.MILESTONE_MULT}` : ' · every milestone reached');
+        if (ms.next) prog.firstChild.style.width = (100 * (own - ms.prev) / (ms.next - ms.prev)).toFixed(1) + '%';
+      }
+      else if (ready) $('bd-' + t).textContent = b.desc;
+      else if (hidden) $('bd-' + t).textContent = 'Keep digging to find out.';
+      else {
+        $('bd-' + t).textContent = `Earn ${fmt(b.unlock)} bits in this world: ${fmt(Math.min(s.earned, b.unlock))} so far.`;
+        prog.firstChild.style.width = (100 * Math.min(1, s.earned / b.unlock)).toFixed(1) + '%';
+      }
+      if (ready) this.setBuy($('bb-' + t), uCost, !full && uCost <= s.bits, full ? 'World full' : 'Unlock');
+      else if (unlocked) {
         const n = this.buyCount(t), cost = sim.ballCost(t, n);
-        const full = sim.n >= D.MAX_BALLS;
-        this.setBuy($('bb-' + t), cost, unlocked && !full && cost <= s.bits, full ? 'World full' : `Buy ${n}`);
-      });
-    }
+        this.setBuy($('bb-' + t), cost, !full && cost <= s.bits, full ? 'World full' : `Buy ${n}`);
+      } else {
+        this.setBuy($('bb-' + t), uCost, false, 'Locked');
+        if (hidden) $('bb-' + t).querySelector('.cost').textContent = '???';
+      }
+    });
+    $('ballDot').hidden = !unlockAffordable || this.tab === 'balls';
+    BALLS.forEach((b, t) => {
+      const lv = PQ.milestone(s.owned[b.key]).lv;
+      if (lv > this.mileSeen[t]) {
+        this.mileSeen[t] = lv;
+        this.toast(`${D.MILESTONES[lv - 1]} ${b.name}s! They now earn ×${fmtX(sim.tMult[t])}.`, 3200);
+      }
+    });
 
     D.UP.forEach(u => {
       const row = $('up-' + u.key), lvl = s.global[u.key], cost = sim.upCost(u.key), maxed = lvl >= u.max;
@@ -2645,6 +2797,11 @@ textarea {
   };
 
   U.tick = function (dt) {
+    const bits = this.g.state.bits;
+    this.shown += (bits - this.shown) * Math.min(1, dt * 6);
+    if (Math.abs(bits - this.shown) < 1) this.shown = bits;
+    const txt = fmt(this.shown);
+    if (txt !== this.bitsTxt) { this.bitsTxt = txt; $('bits').textContent = txt; }
     this.t += dt;
     if (this.t >= 0.2) {
       this.t = 0;
@@ -2745,7 +2902,10 @@ textarea {
     const sim = game.sim;
     const x = Math.floor(p.x), y = Math.floor(p.y);
     if (held && (x < 0 || y < 0 || x >= D.W || y >= D.H || !(game.world.cells[y * D.W + x] & D.TYPE_MASK))) return;
+    const e0 = game.state.earned;
     const r = sim.tap(p.x, p.y);
+    const gain = game.state.earned - e0;
+    if (gain >= 1) game.renderer.float(p.x, p.y, '+' + PQ.fmt(gain));
     if (r === 'relic') game.ui.toast('Relics cannot be broken. Balls bounce off them.');
     if (r === 'drop' && !dropHinted) { dropHinted = true; game.ui.toast('Drop point moved. New balls appear here.'); }
   }
