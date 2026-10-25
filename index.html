@@ -2489,7 +2489,10 @@ textarea {
       ${c === 'wipe' ? `<div class="confirm"><p>This deletes this world, your balls and upgrades. Stars, perks and depth are kept.</p>
         <div class="actions"><button type="button" class="btn danger" data-act="do-wipe">Delete and start over</button><button type="button" class="btn" data-act="cancel">Keep playing</button></div></div>`
         : `<div class="actions"><button type="button" class="btn danger" data-act="wipe">Start over</button></div>`}
-      <p class="note">Depth ${s.depth}: ${esc(this.depthNote(s.depth))} Seed ${s.seed}</p>`;
+      <p class="note">Depth ${s.depth}: ${esc(this.depthNote(s.depth))} Seed ${s.seed}</p>
+      <div class="group-h">App</div>
+      <p class="note">Version ${esc(this.g.build || 'dev')}</p>
+      <div class="actions"><button type="button" class="btn" data-act="update">Check for update</button></div>`;
   };
 
   U.starWord = n => `${n} star${n === 1 ? '' : 's'}`;
@@ -2547,6 +2550,7 @@ textarea {
         else sim.buyBall(t, this.buyCount(t));
         break;
       }
+      case 'update': g.checkUpdate(); return;
       case 'release': this.closeModal(); g.renderer.lookAtDrop(s.drop, Math.max(g.renderer.cam.z, 3)); break;
       case 'up': if (g.sim.buyUp(b.dataset.key) && b.dataset.key === 'radar') this.radarToast(); break;
       case 'perk': {
@@ -2828,6 +2832,7 @@ textarea {
 // Pixel Quarry: boot, game loop, autosave.
 (function () {
   const PQ = window.PQ, D = PQ.DATA;
+  const BUILD = '20261024-184304';                       // build.py stamps the build time here
   const $ = id => document.getElementById(id);
   const canvas = $('world');
   const yieldFrame = () => new Promise(r => setTimeout(r, 0));
@@ -2926,6 +2931,21 @@ textarea {
   };
 
   game.reload = function () { location.reload(); };
+  game.build = BUILD;
+
+  // Ask for a newer version now; reloads onto it, or says this one is current.
+  game.checkUpdate = async function () {
+    await saveAll();
+    try {
+      const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update();
+      const res = await fetch('./?check=' + Date.now(), { cache: 'no-store' });
+      const html = await res.text();
+      const m = html.match(/const BUILD = '([^']+)'/);
+      if (m && m[1] !== BUILD) { game.ui.toast('Updating…'); setTimeout(() => location.reload(), 600); return; }
+      game.ui.toast('You have the latest version.');
+    } catch (e) { game.ui.toast('Could not reach the server. Try again when online.'); }
+  };
 
   let last = performance.now(), lastWall = Date.now(), metaT = 0, worldT = 0;
   function frame(now) {

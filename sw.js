@@ -1,6 +1,6 @@
 // Pixel Quarry service worker: cache the game so it opens offline.
 // build.py stamps VERSION so every build replaces the old cache.
-const VERSION = '20261024-183657';
+const VERSION = '20261024-184304';
 const CACHE = 'pixelquarry-' + VERSION;
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
@@ -20,7 +20,8 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const isPage = req.mode === 'navigate';
   if (isPage) {
-    e.respondWith(fetch(req).then(res => {
+    // no-cache: revalidate with the server, past GitHub Pages' 10-minute max-age.
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then(res => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put('index.html', copy));
       return res;
