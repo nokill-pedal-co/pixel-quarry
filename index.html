@@ -3321,7 +3321,7 @@ textarea {
 // Pixel Quarry: boot, game loop, autosave.
 (function () {
   const PQ = window.PQ, D = PQ.DATA;
-  const BUILD = '20261025-091847';                       // build.py stamps the build time here
+  const BUILD = '20261025-152313';                       // build.py stamps the build time here
   const $ = id => document.getElementById(id);
   const canvas = $('world');
   const yieldFrame = () => new Promise(r => setTimeout(r, 0));
@@ -3474,6 +3474,22 @@ textarea {
   window.addEventListener('resize', () => game.renderer && game.renderer.resize());
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveAll(); });
   window.addEventListener('pagehide', saveAll);
+
+  // Back twice to leave: the first swipe or press back only warns, so a stray gesture can't close
+  // the game. Browsers skip history entries made without a tap, so the guard is armed on a tap.
+  if (window.top === window.self) {
+    let armed = !!(history.state && history.state.pq), warnedAt = 0;
+    window.addEventListener('pointerup', () => {
+      if (armed || Date.now() - warnedAt < 2500) return;
+      try { history.pushState({ pq: 1 }, ''); armed = true; } catch (e) { /* no history here */ }
+    }, true);
+    window.addEventListener('popstate', () => {
+      if (!armed) return;
+      armed = false; warnedAt = Date.now();
+      saveAll();
+      if (game.ui) game.ui.toast('Swipe back again to close Pixel Quarry.', 2500);
+    });
+  }
 
   async function start() {
     const meta = PQ.Save.loadMeta();
