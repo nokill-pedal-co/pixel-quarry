@@ -20,6 +20,14 @@
 <style>
 /* Layout: the quarry canvas fills the screen; a translucent HUD strip rides the top,
    a pull-up shop sheet sits at the bottom. One deliberate dark world, one gold accent. */
+/* Digits only, from VT323: Pixelify's 8 pinches into an S at small sizes. Scaled to Pixelify's height. */
+@font-face {
+  font-family: 'PQ Digits';
+  src: url(https://fonts.gstatic.com/s/vt323/v18/pxiKyp0ihIEF2isfFJU.woff2) format('woff2');
+  unicode-range: U+0030-0039;
+  size-adjust: 125%;
+  font-display: swap;
+}
 :root {
   --ground: #080b09;
   --panel: #0f1511;
@@ -32,7 +40,7 @@
   --gold: #ffd640;
   --gold-ink: #1c1604;
   --warn: #ff6a58;
-  --display: 'Pixelify Sans', ui-monospace, 'Cascadia Mono', Menlo, monospace;
+  --display: 'PQ Digits', 'Pixelify Sans', ui-monospace, 'Cascadia Mono', Menlo, monospace;
   --body: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --gutter-l: max(16px, env(safe-area-inset-left, 0px));
   --gutter-r: max(16px, env(safe-area-inset-right, 0px));
@@ -2425,7 +2433,7 @@ textarea {
     if (!this.floats.length) return;
     const dpr = this.dpr, keep = [];
     ctx.save();
-    ctx.font = `700 ${16 * dpr}px 'Pixelify Sans', sans-serif`;
+    ctx.font = `700 ${16 * dpr}px 'PQ Digits', 'Pixelify Sans', sans-serif`;
     ctx.textAlign = 'center';
     ctx.lineWidth = 3 * dpr;
     ctx.strokeStyle = 'rgba(11,10,16,0.85)';
@@ -3321,7 +3329,7 @@ textarea {
 // Pixel Quarry: boot, game loop, autosave.
 (function () {
   const PQ = window.PQ, D = PQ.DATA;
-  const BUILD = '20261025-152313';                       // build.py stamps the build time here
+  const BUILD = '20261025-152640';                       // build.py stamps the build time here
   const $ = id => document.getElementById(id);
   const canvas = $('world');
   const yieldFrame = () => new Promise(r => setTimeout(r, 0));
