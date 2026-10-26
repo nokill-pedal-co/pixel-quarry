@@ -303,6 +303,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .toggle { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; }
 .toggle input { width: 20px; height: 20px; accent-color: var(--gold); }
 .note { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+.starsleft { margin: 4px 0 0; font: 700 22px/1 var(--display); color: var(--gold); font-variant-numeric: tabular-nums; }
 .confirm { margin-top: 10px; padding: 12px; border: 1px solid var(--warn); }
 .confirm p { margin: 0 0 8px; font-size: 14px; }
 textarea {
@@ -1312,6 +1313,12 @@ textarea {
   const PERK = {};
   D.STAR_PERKS.forEach(k => { PERK[k.key] = k; });
   const perkVal = (s, key) => PERK[key].vals[s.perks[key]];
+  // Stars the owned perk levels cost: the spent count is always derived from this on load.
+  function perkSpent(perks) {
+    let n = 0;
+    D.STAR_PERKS.forEach(k => { for (let l = 0; l < Math.min(perks[k.key] || 0, k.costs.length); l++) n += k.costs[l]; });
+    return n;
+  }
 
   function newState(seed) {
     const owned = {}, up = {};
@@ -1958,6 +1965,7 @@ textarea {
   PQ.prestige = prestige;
   PQ.clearBonus = clearBonus;
   PQ.newPerks = newPerks;
+  PQ.perkSpent = perkSpent;
   PQ.milestone = milestone;
   PQ.BALL = B;
 })();
@@ -2608,6 +2616,7 @@ textarea {
       if (typeof meta.depth !== 'number') old.depth = old.stars || 0;
       const s = PQ.prestige(old, meta.seed >>> 0);
       s.rebuilt = true;
+      s.spent = PQ.perkSpent(s.perks);
       return s;
     }
     const s = Object.assign(PQ.newState(meta.seed >>> 0), meta);
@@ -2618,6 +2627,7 @@ textarea {
     s.settings = Object.assign({ particles: true }, meta.settings);
     s.relics = Array.isArray(meta.relics) ? meta.relics : [];
     s.perks = Object.assign(PQ.newPerks(), meta.perks);
+    s.spent = PQ.perkSpent(s.perks);           // never trust a stored count over the perks actually owned
     s.unlocked = Object.assign({ pebble: true }, meta.unlocked);
     s.journal = Object.assign({}, meta.journal);
     s.drop = meta.drop || { x: PQ.DATA.START.x, y: PQ.DATA.START.y };
@@ -2830,7 +2840,7 @@ textarea {
       </div>`).join('') + `</div><p class="note">Upgrade pixels glow magenta in the dark. A ball or a tap collects one for ◆; spend ◆ here.</p>`;
 
     // Stars: perks bought with stars, kept across worlds
-    $('panel-stars').innerHTML = `<p class="note" id="starsNote"></p>` + D.STAR_PERKS.map(k => `
+    $('panel-stars').innerHTML = `<p class="starsleft" id="starsLeft"></p><p class="note" id="starsNote"></p>` + D.STAR_PERKS.map(k => `
       <div class="row plain" id="pk-${k.key}">
         <div><div class="name">${esc(k.name)}<span class="lv"></span></div><div class="desc"></div></div>
         <button type="button" class="buy" data-act="perk" data-key="${k.key}"><span class="lbl">Buy</span><span class="cost">0</span></button>
@@ -3278,8 +3288,10 @@ textarea {
     });
     $('starDot').hidden = !perkAffordable || this.tab === 'stars';
     if (this.tab === 'stars') {
+      $('starsLeft').textContent = `★ ${left} to spend`;
+      const owned = D.STAR_PERKS.filter(k => s.perks[k.key]).map(k => `${k.name} Lv ${s.perks[k.key]}`);
       $('starsNote').textContent = s.stars
-        ? `${this.starWord(left)} to spend. All ${s.stars} you have earned add +${fmt(s.stars * D.STAR_BONUS * 100)}% bits, spent or not.`
+        ? `${s.stars} earned${s.spent ? `, ${s.spent} spent on ${owned.join(', ')}` : ''}. Every star earned adds +${fmt(D.STAR_BONUS * 100)}% bits for good, spent or not.`
         : 'Find the Golden Pixel to earn stars. Spend them here on perks that last through every world.';
     }
 
@@ -3332,7 +3344,7 @@ textarea {
 // Pixel Quarry: boot, game loop, autosave.
 (function () {
   const PQ = window.PQ, D = PQ.DATA;
-  const BUILD = '20261025-153453';                       // build.py stamps the build time here
+  const BUILD = '20261025-170808';                       // build.py stamps the build time here
   const $ = id => document.getElementById(id);
   const canvas = $('world');
   const yieldFrame = () => new Promise(r => setTimeout(r, 0));
